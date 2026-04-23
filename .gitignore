@@ -1,5 +1,6 @@
 # dependencies
 node_modules/
+**/node_modules/
 .pnp
 .pnp.*
 .yarn/*
@@ -9,9 +10,10 @@ node_modules/
 !.yarn/versions
 
 # Next.js
-demo-website/.next/
+**/.next/
 demo-website/out/
 demo-website/out.zip
+next-env.d.ts
 
 # testing
 coverage/
