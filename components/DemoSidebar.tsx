@@ -16,12 +16,12 @@ export default function DemoSidebar() {
   return (
     <aside className="hidden md:flex flex-col w-56 bg-white border-r border-zinc-100 fixed h-full z-20">
       <div className="p-5 border-b border-zinc-100">
-        <div className="flex items-center gap-2">
+        <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
           <div className="w-7 h-7 bg-orange-500 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-xs">DP</span>
           </div>
           <span className="font-bold text-zinc-900">DocPanther</span>
-        </div>
+        </Link>
         <div className="mt-1 text-xs text-zinc-400 font-medium">demo workspace</div>
       </div>
       <nav className="flex-1 p-3 space-y-1">
