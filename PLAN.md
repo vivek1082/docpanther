@@ -251,19 +251,34 @@ POST   /api/templates/{id}/apply/{caseId}       → copy template items into a c
 
 Backend never handles file bytes. Client uploads directly to S3.
 
+**How the upload link works (important):**
+- The email/link sent to customers is just `{tenant}.docpanther.com/upload/{token}` — a permanent URL
+- This link never expires (unless admin sets `expires_at` on the case)
+- When the customer opens the link (today, tomorrow, next week), the backend generates a **fresh** presigned S3 PUT URL on-demand at that moment
+- The presigned URL has a 15-min expiry — that's just the window to complete the actual file PUT to S3
+- So the customer always gets a fresh short-lived presigned URL whenever they are actively uploading
+
 **Upload flow:**
 ```
-1. Admin/Customer → POST .../upload-url
-2. Backend        → generate S3 presigned PUT URL (15 min expiry) → return to client
-3. Client         → PUT file directly to S3 using presigned URL
-4. Client         → POST .../confirm-upload  { filename, size, s3Key }
-5. Backend        → save Document record, update item status → UPLOADED, fire audit event
+Customer opens upload link any time
+    ↓
+GET /api/upload/{token}  → backend returns case + checklist (checks case not expired)
+    ↓
+Customer clicks Upload on a checklist item
+    ↓
+POST /api/upload/{token}/items/{itemId}/upload-url
+    → backend generates fresh S3 presigned PUT URL (15 min) → returns to browser
+    ↓
+Browser PUT file directly to S3  (backend never touches bytes)
+    ↓
+POST /api/upload/{token}/items/{itemId}/confirm  { filename, size, s3Key }
+    → backend saves Document record, updates item status → UPLOADED, fires audit event
 ```
 
 **S3 path structure:**
 ```
 Individual user:  individual/{user_id}/{case_id}/{item_id}/{filename}
-Tenant:           tenant/{tenant_id}/{case_id}/{item_id}/{filename}
+Tenant (pod):     tenant/{tenant_id}/{case_id}/{item_id}/{filename}
 ```
 
 **ZIP download:**
@@ -274,16 +289,17 @@ Tenant:           tenant/{tenant_id}/{case_id}/{item_id}/{filename}
 
 **Admin endpoints:**
 ```
-POST /api/cases/{id}/items/{itemId}/upload-url      → presigned PUT URL (admin upload)
-POST /api/cases/{id}/items/{itemId}/confirm-upload  → confirm + save Document record
-DELETE /api/documents/{docId}                       → delete a document
+POST   /api/cases/{id}/items/{itemId}/upload-url      → presigned PUT URL (admin upload)
+POST   /api/cases/{id}/items/{itemId}/confirm-upload  → confirm + save Document record
+DELETE /api/documents/{docId}                         → delete a document
+GET    /api/cases/{id}/download                       → stream ZIP of all documents
 ```
 
 **Public customer endpoints (no auth, token-based):**
 ```
 GET  /api/upload/{token}                            → case + checklist (no sensitive admin data)
-POST /api/upload/{token}/items/{itemId}/upload-url  → presigned URL for customer
-POST /api/upload/{token}/items/{itemId}/confirm     → confirm customer upload
+POST /api/upload/{token}/items/{itemId}/upload-url  → fresh presigned PUT URL generated on-demand
+POST /api/upload/{token}/items/{itemId}/confirm     → confirm upload, save Document record
 POST /api/upload/{token}/items/{itemId}/text        → submit text value
 ```
 
@@ -361,10 +377,35 @@ POST /api/notifications/read    → mark as read
 
 ---
 
-## Database Architecture
+## Database Architecture — Pod Model
+
+### Concept
+Instead of a single shared DB per region, tenant data lives in **pods**. A pod is a self-contained PostgreSQL instance (RDS Aurora) that holds all product tables for one or more tenants.
+
+```
+Control Plane (India, always)
+    ↓ lookup: tenant_id → pod_id → connection URL
+Pod A — ap-south-1   (shared: tenants T1, T2, T3 — small/free tier)
+Pod B — us-east-1    (dedicated: tenant T4 — large enterprise)
+Pod C — eu-central-1 (dedicated: tenant T5 — EU enterprise)
+Pod D — ap-south-1   (split from Pod A when it grew too large)
+```
+
+**Pod lifecycle:**
+- New tenant → assigned to a shared pod in their chosen region
+- Tenant grows large → extracted to a dedicated pod (zero downtime migration)
+- Pod overloaded with multiple tenants → one tenant moved to a new pod
+- Pod too big for one region → moved to another region (data sovereignty change)
+- Individual users → always on the India shared pod
+
+**Why pods beat one-table-per-region:**
+- One table = noisy neighbour problem (large tenant starves others)
+- Pod = full isolation — CPU, memory, IOPS, storage all dedicated when needed
+- Easy to move: change the pod_id mapping in control plane, no app code changes
+- Compliance: a tenant's data is physically isolated, not just logically
 
 ### Control Plane DB — India (ap-south-1), always
-Only identity + tenant registry. No business data here.
+Identity, tenant registry, and pod routing map. No business data here.
 ```
 users               (id, email, google_id nullable, name, avatar_url,
                      password_hash nullable, email_verified, created_at)
@@ -373,24 +414,39 @@ tenants             (id, slug, name, region, plan, billing_address,
 user_tenant_roles   (user_id, tenant_id, role)
 email_verifications (id, user_id, token, expires_at, used_at)
 password_resets     (id, user_id, token, expires_at, used_at)
+
+pods                (id, region, db_url, status ENUM(ACTIVE, DRAINING, FULL),
+                     type ENUM(SHARED, DEDICATED), created_at)
+tenant_pod_mapping  (tenant_id, pod_id, assigned_at)
+                     -- control plane checks this to route every DB call
 ```
 
-### Per-Region Tenant DB — in tenant's chosen region
-Full product data for that tenant:
+### Pod DB Schema (identical on every pod)
+Each pod runs the same Flyway migrations. Tenant data isolated by `tenant_id` column.
 ```
+folders, folder_permissions, file_nodes
 cases, checklist_items, documents
 templates, template_items
 audit_logs, share_links
 notifications, email_templates
 ```
 
-### Individual User DB — India (ap-south-1)
-Same schema as per-region DB, shared instance for all individual users.
+### Pod Routing (in backend)
+```
+1. Request arrives with tenant_id (from JWT claim or subdomain lookup)
+2. Check Redis cache: tenant_id → pod connection URL  (TTL 1 hour)
+3. Cache miss → query control plane: SELECT pod FROM tenant_pod_mapping WHERE tenant_id = ?
+4. Store in Redis → use that DataSource for all DB calls in this request
+5. Tenant migrated to new pod? → control plane updated → Redis TTL expires → auto-rerouted
+```
+
+### Individual User Pod — India (ap-south-1)
+Individual users are always on the India shared pod. Same schema, `tenant_id` is NULL.
 
 ### Redis — per region
 - JWT refresh tokens (TTL = 7 days)
 - Rate limiting counters
-- Tenant-to-region lookup cache (TTL = 1 hour)
+- Tenant → pod connection URL cache (TTL = 1 hour)
 
 ---
 
@@ -439,19 +495,26 @@ CloudFront + WAF
          ↓
 ALB  (Security Group: only accept traffic from CloudFront IPs)
          ↓
-ECS Fargate (Spring Boot container, auto-scaling)
+ECS Fargate (Spring Boot — auto-scaling, stateless)
          ↓
-RDS Aurora PostgreSQL (Multi-AZ, private subnet)
-ElastiCache Redis      (private subnet)
+Control Plane RDS Aurora (India, always)  — identity + pod routing map
+         +
+Pod RDS Aurora instances (per region, per pod)
+  Pod A: ap-south-1  shared  → tenants T1, T2, T3
+  Pod B: us-east-1   dedicated → tenant T4
+  Pod C: eu-central-1 dedicated → tenant T5
+  (new pods provisioned via Terraform as tenants grow)
+         +
+ElastiCache Redis (per region) — JWT tokens, rate limiting, pod routing cache
 
-S3 bucket per region:
+S3 bucket per region (one bucket, paths scoped by tenant_id):
   docpanther-ap-south-1
   docpanther-us-east-1
   docpanther-eu-central-1
   docpanther-me-central-1
 
-AWS SES        → transactional email
-Secrets Manager → DB creds, OAuth secrets, JWT secret
+AWS SES         → transactional email
+Secrets Manager → pod DB creds (one secret per pod), OAuth secrets, JWT secret
 Shield Standard → always-on DDoS protection (free tier)
 ```
 
