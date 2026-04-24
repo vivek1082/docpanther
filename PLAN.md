@@ -510,21 +510,48 @@ STUDENT        → Reads approved materials + uploads to personal folder only
 
 ---
 
+### Batch Templates — for repetitive batch creation
+
+An institute runs the same batch structure every year (IAS Foundation = same 6 subjects, same teacher roles). Instead of re-creating subjects and assigning teachers from scratch each time, admin picks a **batch template** → new batch is pre-populated with all subjects. Teacher assignments are copied too if the same teachers are still in the system.
+
+```
+Batch Template: "IAS Foundation 2-Year"
+├── History        → default teacher: Ramesh Kumar
+├── Polity         → default teacher: Priya Sharma
+├── Geography      → default teacher: Amit Singh
+├── Economy        → default teacher: Neha Gupta
+├── Science & Tech → default teacher: (unassigned)
+└── Current Affairs→ default teacher: Ravi Verma
+
+Admin creates "IAS Batch 11 — 2026":
+  → picks template "IAS Foundation 2-Year"
+  → all 6 subjects created instantly
+  → teachers auto-assigned where teacher account still exists
+  → admin only needs to: enroll students + assign any unassigned subjects
+```
+
+Templates are tenant-specific (each institute has their own). A template can be cloned and modified.
+
+---
+
 ### Data Model (new tables in pod DB)
 
 ```sql
 batches (
   id, tenant_id, name, year, description,
+  batch_template_id nullable,    -- which template was used to create this batch
   created_by, created_at, updated_at
 )
 
 batch_subjects (
   id, batch_id, name, description,
+  sort_order,                    -- display order (History=1, Polity=2 etc.)
   created_at
 )
 
 subject_teachers (
-  subject_id, user_id   -- teacher must be TENANT_MEMBER with TEACHER sub-role
+  subject_id, user_id,           -- teacher must be TENANT_MEMBER with TEACHER sub-role
+  is_primary boolean default true -- a subject can have multiple teachers; one is primary
 )
 
 batch_enrollments (
@@ -550,6 +577,18 @@ student_storage (
   used_bytes  DEFAULT 0
 )
 -- updated on every student upload/delete
+
+-- Batch templates (new)
+batch_templates (
+  id, tenant_id, name, description,
+  created_by, created_at, updated_at
+)
+
+batch_template_subjects (
+  id, template_id, name, description,
+  sort_order,
+  default_teacher_id nullable     -- auto-assign this teacher when batch is created from template
+)
 ```
 
 ---
@@ -584,20 +623,29 @@ student_storage (
 ```
 My Batches
 ├── IAS Batch 10 — 2025
-│   ├── History (3 materials)
-│   │   ├── ✅ Modern India — Chapter 5.pdf       [Download]
-│   │   ├── ✅ Ancient India — Overview.pdf       [Download]
-│   │   └── ✅ Medieval India — Sultanate.pdf     [Download]
-│   ├── Polity (2 materials)
-│   └── Geography (1 material)
+│   ├── History            — Ramesh Kumar Sir       (3 materials)
+│   │   ├── ✅ Modern India — Chapter 5.pdf         [Download]
+│   │   ├── ✅ Ancient India — Overview.pdf         [Download]
+│   │   └── ✅ Medieval India — Sultanate.pdf       [Download]
+│   ├── Polity             — Priya Sharma Ma'am     (2 materials)
+│   ├── Geography          — Amit Singh Sir         (1 material)
+│   ├── Economy            — Neha Gupta Ma'am       (0 materials)
+│   └── Science & Tech     — (2 teachers assigned)  (4 materials)
 └── PT Batch 3 — 2025
-    └── Current Affairs (5 materials)
+    └── Current Affairs    — Ravi Verma Sir         (5 materials)
 
 My Storage  (1.2 GB / 5 GB used)
 └── 📁 Personal Notes
     ├── my_polity_notes.pdf
     └── handwritten_scan.jpg
 ```
+
+**Subject card shows:**
+- Subject name
+- Primary teacher name + avatar (visible to students)
+- If multiple teachers: "Ramesh Kumar + 1 more"
+- Material count (approved only — students never see pending count)
+- Last uploaded date
 
 **Student rules:**
 - Can only see batches they are enrolled in
@@ -640,18 +688,27 @@ My Storage  (1.2 GB / 5 GB used)
 ### Endpoints (new, to be added to openapi.yaml)
 
 ```
+# Batch templates
+GET    /api/edu/templates                        → list batch templates
+POST   /api/edu/templates                        → create template { name, subjects[{name, defaultTeacherId?}] }
+GET    /api/edu/templates/{id}                   → template detail + subjects
+PUT    /api/edu/templates/{id}                   → update template
+DELETE /api/edu/templates/{id}                   → delete template
+POST   /api/edu/templates/{id}/clone             → clone template with new name
+
 # Batch management
 GET    /api/edu/batches                          → list batches
-POST   /api/edu/batches                          → create batch
-GET    /api/edu/batches/{id}                     → batch detail + subjects
+POST   /api/edu/batches                          → create batch { name, year, templateId? }
+                                                 -- if templateId: subjects auto-created from template
+GET    /api/edu/batches/{id}                     → batch detail + subjects + teacher names
 PUT    /api/edu/batches/{id}                     → update batch
 DELETE /api/edu/batches/{id}                     → delete batch
 
 # Subject management
-POST   /api/edu/batches/{id}/subjects            → add subject
-PUT    /api/edu/subjects/{subjectId}             → update subject
+POST   /api/edu/batches/{id}/subjects            → add subject manually
+PUT    /api/edu/subjects/{subjectId}             → update subject (name, sort_order)
 DELETE /api/edu/subjects/{subjectId}             → delete subject
-POST   /api/edu/subjects/{subjectId}/teachers    → assign teacher
+POST   /api/edu/subjects/{subjectId}/teachers    → assign teacher { userId, isPrimary }
 DELETE /api/edu/subjects/{subjectId}/teachers/{userId} → remove teacher
 
 # Student enrollment
