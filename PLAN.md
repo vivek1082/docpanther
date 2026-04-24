@@ -732,6 +732,154 @@ The DPDP compliance + document collection combination for Indian regulated indus
 
 ---
 
+## Compliance Certifications — Required vs Good to Have
+
+### What these certifications actually are
+
+---
+
+#### ISO 27001 — Information Security Management System
+**What it is:** International standard (by ISO/IEC) for managing information security. Proves you have a formal system for identifying risks and controlling them. Most widely recognised globally — especially in India, EU, and Middle East.
+
+**What it covers:** Access control, encryption, incident response, physical security, vendor management, HR security, business continuity.
+
+**How to get it:**
+1. Implement an ISMS (policies, procedures, controls)
+2. Internal audit
+3. Stage 1 audit — certifying body reviews your documentation
+4. Stage 2 audit — certifying body inspects actual implementation
+5. Certificate issued (valid 3 years, annual surveillance audits)
+
+**Certifying bodies in India:** BSI India, Bureau Veritas, TÜV Rheinland, DNV
+
+**Cost:** ₹8–25 lakh (consulting + audit + cert)
+**Timeline:** 9–18 months
+**Priority for DocPanther:** 🔴 **Critical** — Indian enterprises (NBFCs, hospitals, corporates) will ask for this before signing. Without it, you cannot sell to regulated enterprises.
+
+---
+
+#### SOC 2 Type II — System and Organisation Controls
+**What it is:** US standard (by AICPA) for SaaS/cloud companies. Proves your security, availability, and confidentiality controls work consistently over a period (usually 6–12 months).
+
+**Two types:**
+- **Type I** — point-in-time snapshot of controls (faster, cheaper, less credible)
+- **Type II** — 6–12 month audit period (what US enterprise customers actually want)
+
+**Trust criteria:** Security (mandatory) + Availability, Processing Integrity, Confidentiality, Privacy (choose what's relevant)
+
+**How to get it:**
+1. Implement controls (access logs, encryption, incident response, change management)
+2. Choose a CPA firm that does SOC 2 audits
+3. Observation period (6–12 months)
+4. Auditor issues SOC 2 report (not a public certificate — shared under NDA with customers)
+
+**Cost:** $30,000–$80,000 USD for Type II (audit firm fees)
+**Timeline:** 9–15 months for Type II
+**Priority for DocPanther:** 🟡 **Good to have** — needed only when selling to US companies. Not urgent for India-first GTM, but needed for any US enterprise deal.
+
+---
+
+#### HIPAA — Health Insurance Portability and Accountability Act
+**What it is:** US federal law covering protection of patient health information (PHI). Applies if DocPanther stores documents that contain health data (lab reports, prescriptions, insurance claims).
+
+**Important:** There is no "HIPAA certification." You become HIPAA compliant by implementing required safeguards and signing a BAA (Business Associate Agreement) with each healthcare customer.
+
+**What it requires:**
+- PHI encrypted at rest and in transit (already planned — S3 + TLS)
+- Audit logs of all access to PHI (already planned)
+- Access controls — only authorised personnel access PHI
+- BAA signed with every customer who sends PHI through DocPanther
+- Breach notification within 60 days to HHS and affected individuals
+- Data retention and destruction policies
+
+**How to demonstrate it:** Get a third-party HIPAA risk assessment audit.
+**Cost:** ₹5–15 lakh for risk assessment
+**Timeline:** 3–6 months
+**Priority for DocPanther:** 🟡 **Good to have** — needed only if targeting Indian healthtech (hospitals, insurance, diagnostic chains) or US healthcare. If a hospital uses DocPanther to collect patient documents → you must have this.
+
+---
+
+#### GDPR — General Data Protection Regulation (EU)
+**What it is:** EU law governing how personal data of EU residents is handled. Not a certification — a legal compliance requirement. If any of your tenants are EU companies OR if EU residents upload documents through DocPanther → you must comply.
+
+**Key requirements:**
+- Data residency: EU data must stay in EU (your EU region pod covers this)
+- Right to erasure: users can request their data be deleted
+- Data breach notification: notify supervisory authority within 72 hours
+- Privacy by Design: bake privacy into architecture (you are doing this)
+- DPA (Data Processing Agreement) signed with every EU customer
+- Cookie consent on website
+- Appoint EU representative if you have no EU presence
+
+**How to demonstrate it:** ISO 27701 certification (privacy extension of ISO 27001) is the most credible evidence of GDPR readiness.
+
+**Cost of compliance:** ₹5–20 lakh (legal + technical implementation)
+**Priority for DocPanther:** 🟡 **Good to have** — needed as soon as you have EU tenants. EU region pod is already planned, which handles the hardest part (data residency).
+
+---
+
+#### India DPDP — Digital Personal Data Protection Act 2023
+**What it is:** India's comprehensive data protection law. Rules expected to be finalised and obligations kick in ~May 2027. If DocPanther handles personal data of Indian residents (which it does — customer names, emails, uploaded ID documents) → you must comply.
+
+**What DocPanther must implement:**
+
+| Requirement | What it means | DocPanther action needed |
+|---|---|---|
+| **Notice & Consent** | Tell users what data you collect and why, get consent | Consent banner on upload portal, privacy notice |
+| **Purpose limitation** | Only collect data needed for the stated purpose | Don't use uploaded documents for anything else |
+| **Data minimisation** | Don't collect more than needed | Already OK — user uploads only what checklist requests |
+| **Data retention limits** | Don't store data longer than needed | Auto-delete cases/documents after configurable retention period |
+| **Right to erasure** | User can request all their data be deleted | Implement `/api/me/delete-account` and case deletion that also purges S3 |
+| **Right to correction** | User can correct inaccurate data | Allow profile + case metadata edits |
+| **Breach notification** | Notify Data Protection Board + affected users of breaches | Incident response process + notification system |
+| **Data fiduciary registration** | Large data handlers must register with DPB | Required only if DocPanther becomes a "Significant Data Fiduciary" (threshold TBD by rules) |
+| **Children's data** | No behavioural tracking, parental consent required | Ensure no tracking pixels; T&C must restrict under-18 use |
+| **Cross-border transfers** | Personal data of Indians can only be sent to countries approved by central government | Affects your EU/US pods — wait for approved country list |
+
+**What DocPanther gets for free by design:**
+- India data residency for individual users (already planned)
+- Audit log of every access to every document (already planned)
+- Tenant-chosen region (GDPR/DPDP compliance by design)
+- Data isolation per pod (breach in one pod doesn't affect others)
+
+**What still needs to be built:**
+- Consent capture on the customer upload portal
+- Configurable data retention + auto-delete job
+- Right-to-erasure endpoint (full account + S3 deletion)
+- Privacy policy + DPA templates for your tenants to use with their customers
+- Incident response playbook
+
+**Cost of DPDP compliance:** ₹2–8 lakh (legal + implementation) — much cheaper than GDPR since the architecture is already aligned.
+**Priority for DocPanther:** 🔴 **Critical + Moat** — you sell to Indian businesses who will themselves need to comply. DocPanther being DPDP-ready is a selling point, not just a checkbox. This is your differentiation against Google Drive and WhatsApp.
+
+---
+
+#### ISO 27701 — Privacy Information Management System
+**What it is:** Extension of ISO 27001 specifically for privacy. Adds privacy controls on top of your ISMS. Internationally recognised as evidence of GDPR and DPDP readiness.
+
+**Requires ISO 27001 first.** Then adds ~35 additional privacy-specific controls.
+
+**Cost:** ₹3–8 lakh on top of ISO 27001 (incremental)
+**Timeline:** 3–6 months after ISO 27001
+**Priority for DocPanther:** 🟢 **Nice to have** — get ISO 27001 first, then 27701 follows naturally and gives you a privacy credibility badge for enterprise sales.
+
+---
+
+### Certification Roadmap for DocPanther
+
+| Timeline | Certification | Why |
+|---|---|---|
+| **Now (in product)** | DPDP compliance by design | Moat, GTM, required for Indian regulated customers |
+| **Month 6–12** | GDPR compliance (legal + DPA templates) | Needed as soon as first EU tenant signs up |
+| **Year 1–2** | ISO 27001 | Gate-opener for Indian enterprise sales |
+| **Year 2** | ISO 27701 | Privacy badge, builds on 27001 |
+| **Year 2–3** | SOC 2 Type II | Needed for US enterprise deals |
+| **Year 2–3** | HIPAA risk assessment | If targeting healthtech/hospitals |
+
+**Practical advice:** Don't try to get certifications before you have customers. Get ISO 27001 when your first enterprise prospect asks for it — that conversation is a sales forcing function. Until then, build the controls into the product (audit logs, encryption, access control) so certification is fast when you need it.
+
+---
+
 ## AWS Cost Estimate
 
 ### Phase 1 — Early stage (0–50 tenants, India only)
