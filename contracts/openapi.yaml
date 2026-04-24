@@ -1,0 +1,1487 @@
+openapi: 3.1.0
+info:
+  title: DocPanther API
+  version: 1.0.0
+  description: Document collection SaaS — api.docpanther.com
+
+servers:
+  - url: https://api.docpanther.com
+  - url: http://localhost:8080
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message, timestamp]
+      properties:
+        code:    { type: string }
+        message: { type: string }
+        timestamp: { type: string, format: date-time }
+
+    Page:
+      type: object
+      properties:
+        page:          { type: integer }
+        size:          { type: integer }
+        totalElements: { type: integer }
+        totalPages:    { type: integer }
+
+    User:
+      type: object
+      properties:
+        id:            { type: string, format: uuid }
+        email:         { type: string }
+        name:          { type: string }
+        avatarUrl:     { type: string, nullable: true }
+        emailVerified: { type: boolean }
+        createdAt:     { type: string, format: date-time }
+
+    Tenant:
+      type: object
+      properties:
+        id:      { type: string, format: uuid }
+        slug:    { type: string }
+        name:    { type: string }
+        region:  { type: string, enum: [ap-south-1, us-east-1, eu-central-1, me-central-1] }
+        plan:    { type: string, enum: [FREE, STARTER, GROWTH, ENTERPRISE] }
+        logoUrl: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    Case:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        folderId:         { type: string, format: uuid, nullable: true }
+        referenceNo:      { type: string }
+        customerName:     { type: string }
+        customerEmail:    { type: string, format: email }
+        tags:             { type: array, items: { type: string } }
+        status:           { type: string, enum: [PENDING, PARTIAL, COMPLETE] }
+        storageMode:      { type: string, enum: [FLAT, STRUCTURED] }
+        uploadUrl:        { type: string }
+        expiresAt:        { type: string, format: date-time, nullable: true }
+        maxFileSizeMb:    { type: integer }
+        allowedFileTypes: { type: array, items: { type: string } }
+        totalItems:       { type: integer }
+        uploadedItems:    { type: integer }
+        createdAt:        { type: string, format: date-time }
+        updatedAt:        { type: string, format: date-time }
+
+    ChecklistItem:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        caseId:           { type: string, format: uuid }
+        name:             { type: string }
+        description:      { type: string, nullable: true }
+        type:             { type: string, enum: [FILE_UPLOAD, TEXT_INPUT] }
+        required:         { type: boolean }
+        allowMultiple:    { type: boolean }
+        status:           { type: string, enum: [PENDING, UPLOADED, APPROVED, REJECTED] }
+        textValue:        { type: string, nullable: true }
+        maxFileSizeMb:    { type: integer, nullable: true }
+        allowedFileTypes: { type: array, items: { type: string } }
+        sortOrder:        { type: integer }
+        documents:        { type: array, items: { $ref: '#/components/schemas/Document' } }
+        createdAt:        { type: string, format: date-time }
+
+    Document:
+      type: object
+      properties:
+        id:              { type: string, format: uuid }
+        checklistItemId: { type: string, format: uuid }
+        caseId:          { type: string, format: uuid }
+        filename:        { type: string }
+        contentType:     { type: string }
+        sizeBytes:       { type: integer }
+        uploadedAt:      { type: string, format: date-time }
+
+    Folder:
+      type: object
+      properties:
+        id:         { type: string, format: uuid }
+        parentId:   { type: string, format: uuid, nullable: true }
+        name:       { type: string }
+        ownerId:    { type: string, format: uuid }
+        permission: { type: string, enum: [OWNER, EDIT, VIEW] }
+        childCount: { type: integer }
+        caseCount:  { type: integer }
+        fileCount:  { type: integer }
+        createdAt:  { type: string, format: date-time }
+
+    FileNode:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        folderId:    { type: string, format: uuid }
+        name:        { type: string }
+        contentType: { type: string }
+        sizeBytes:   { type: integer }
+        uploadedBy:  { type: string, format: uuid }
+        uploadedAt:  { type: string, format: date-time }
+
+    ShareLink:
+      type: object
+      properties:
+        id:                  { type: string, format: uuid }
+        documentId:          { type: string, format: uuid }
+        token:               { type: string }
+        isPasswordProtected: { type: boolean }
+        expiresAt:           { type: string, format: date-time, nullable: true }
+        maxViews:            { type: integer, nullable: true }
+        viewCount:           { type: integer }
+        createdAt:           { type: string, format: date-time }
+
+    AuditLog:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        action:    { type: string }
+        actorType: { type: string, enum: [ADMIN, CUSTOMER] }
+        actorId:   { type: string, format: uuid, nullable: true }
+        metadata:  { type: object }
+        createdAt: { type: string, format: date-time }
+
+    Template:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        name:      { type: string }
+        tag:       { type: string, nullable: true }
+        isGlobal:  { type: boolean }
+        itemCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+
+    Notification:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        type:      { type: string }
+        title:     { type: string }
+        body:      { type: string }
+        read:      { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+paths:
+
+  # ── AUTH ─────────────────────────────────────────────────────────
+  /api/auth/register:
+    post:
+      tags: [auth]
+      summary: Register new user or enterprise
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, mode]
+              properties:
+                mode:            { type: string, enum: [INDIVIDUAL, ENTERPRISE] }
+                name:            { type: string }
+                email:           { type: string, format: email }
+                password:        { type: string, minLength: 8 }
+                orgName:         { type: string }
+                orgSlug:         { type: string }
+                region:          { type: string, enum: [ap-south-1, us-east-1, eu-central-1, me-central-1] }
+                billingAddress:  { type: string }
+                country:         { type: string }
+      responses:
+        '201': { description: Registered. Email verification sent. }
+        '409': { description: Email already exists }
+
+  /api/auth/verify-email:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:  { type: string }
+                  refresh_token: { type: string }
+
+  /api/auth/login:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:    { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:  { type: string }
+                  refresh_token: { type: string }
+        '401': { description: Invalid credentials }
+
+  /api/auth/forgot-password:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string }
+      responses:
+        '200': { description: Reset email sent if account exists }
+
+  /api/auth/reset-password:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:       { type: string }
+                newPassword: { type: string, minLength: 8 }
+      responses:
+        '200': { description: Password reset }
+        '400': { description: Invalid or expired token }
+
+  /api/auth/refresh:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:  { type: string }
+                  refresh_token: { type: string }
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '204': { description: Logged out }
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  /api/auth/google:
+    get:
+      tags: [auth]
+      security: []
+      summary: Redirect to Google OAuth (individual users only)
+      responses:
+        '302': { description: Redirect to Google }
+
+  # ── TENANT ───────────────────────────────────────────────────────
+  /api/tenants/me:
+    get:
+      tags: [tenant]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+    put:
+      tags: [tenant]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:    { type: string }
+                logoUrl: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+
+  /api/tenants/me/members:
+    post:
+      tags: [tenant]
+      summary: Invite team member by email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string }
+                role:  { type: string, enum: [TENANT_ADMIN, TENANT_MEMBER] }
+      responses:
+        '200': { description: Invite sent }
+
+  /api/tenants/me/members/{userId}:
+    put:
+      tags: [tenant]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [TENANT_ADMIN, TENANT_MEMBER] }
+      responses:
+        '200': { description: Role updated }
+    delete:
+      tags: [tenant]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Member removed }
+
+  # ── FILE SYSTEM ──────────────────────────────────────────────────
+  /api/fs:
+    get:
+      tags: [filesystem]
+      summary: List root contents
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folders:   { type: array, items: { $ref: '#/components/schemas/Folder' } }
+                  cases:     { type: array, items: { $ref: '#/components/schemas/Case' } }
+                  files:     { type: array, items: { $ref: '#/components/schemas/FileNode' } }
+
+  /api/fs/{folderId}:
+    get:
+      tags: [filesystem]
+      parameters:
+        - name: folderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folder:  { $ref: '#/components/schemas/Folder' }
+                  folders: { type: array, items: { $ref: '#/components/schemas/Folder' } }
+                  cases:   { type: array, items: { $ref: '#/components/schemas/Case' } }
+                  files:   { type: array, items: { $ref: '#/components/schemas/FileNode' } }
+
+  /api/fs/folders:
+    post:
+      tags: [filesystem]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:     { type: string }
+                parentId: { type: string, format: uuid, nullable: true }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Folder' }
+
+  /api/fs/folders/{id}:
+    put:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Folder' }
+    delete:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Folder deleted (recursive) }
+
+  /api/fs/folders/{id}/move:
+    post:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parentId: { type: string, format: uuid, nullable: true }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Folder' }
+
+  /api/fs/folders/{id}/upload-url:
+    post:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, sizeBytes, mimeType]
+              properties:
+                filename:  { type: string }
+                sizeBytes: { type: integer }
+                mimeType:  { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presignedUrl: { type: string }
+                  s3Key:        { type: string }
+                  expiresAt:    { type: string, format: date-time }
+
+  /api/fs/folders/{id}/confirm-upload:
+    post:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, sizeBytes, s3Key, mimeType]
+              properties:
+                filename:  { type: string }
+                sizeBytes: { type: integer }
+                s3Key:     { type: string }
+                mimeType:  { type: string }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileNode' }
+
+  /api/fs/folders/{id}/permissions:
+    post:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, permission]
+              properties:
+                userId:     { type: string, format: uuid }
+                permission: { type: string, enum: [VIEW, EDIT] }
+      responses:
+        '200': { description: Permission granted }
+
+  /api/fs/folders/{id}/permissions/{userId}:
+    delete:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Permission revoked }
+
+  /api/fs/files/{id}:
+    put:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileNode' }
+    delete:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: File deleted }
+
+  /api/fs/files/{id}/move:
+    post:
+      tags: [filesystem]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [folderId]
+              properties:
+                folderId: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileNode' }
+
+  /api/fs/search:
+    get:
+      tags: [filesystem]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folders: { type: array, items: { $ref: '#/components/schemas/Folder' } }
+                  cases:   { type: array, items: { $ref: '#/components/schemas/Case' } }
+                  files:   { type: array, items: { $ref: '#/components/schemas/FileNode' } }
+
+  # ── CASES ────────────────────────────────────────────────────────
+  /api/cases:
+    get:
+      tags: [cases]
+      parameters:
+        - name: folderId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [PENDING, PARTIAL, COMPLETE] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Case' }
+    post:
+      tags: [cases]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [referenceNo, customerName, customerEmail]
+              properties:
+                folderId:         { type: string, format: uuid, nullable: true }
+                referenceNo:      { type: string }
+                customerName:     { type: string }
+                customerEmail:    { type: string, format: email }
+                tags:             { type: array, items: { type: string } }
+                storageMode:      { type: string, enum: [FLAT, STRUCTURED], default: STRUCTURED }
+                expiresAt:        { type: string, format: date-time, nullable: true }
+                maxFileSizeMb:    { type: integer, default: 25 }
+                allowedFileTypes: { type: array, items: { type: string } }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+
+  /api/cases/{id}:
+    get:
+      tags: [cases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Case'
+                  - type: object
+                    properties:
+                      checklist:
+                        type: array
+                        items: { $ref: '#/components/schemas/ChecklistItem' }
+    put:
+      tags: [cases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customerName:     { type: string }
+                customerEmail:    { type: string }
+                tags:             { type: array, items: { type: string } }
+                expiresAt:        { type: string, format: date-time, nullable: true }
+                maxFileSizeMb:    { type: integer }
+                allowedFileTypes: { type: array, items: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+    delete:
+      tags: [cases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Case deleted }
+
+  /api/cases/{id}/move:
+    post:
+      tags: [cases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folderId: { type: string, format: uuid, nullable: true }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+
+  /api/cases/{id}/remind:
+    post:
+      tags: [cases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Reminder email sent }
+
+  /api/cases/{id}/download:
+    get:
+      tags: [cases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+
+  /api/cases/{id}/audit:
+    get:
+      tags: [cases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditLog' }
+
+  # ── CHECKLIST ────────────────────────────────────────────────────
+  /api/cases/{id}/items:
+    get:
+      tags: [checklist]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ChecklistItem' }
+    post:
+      tags: [checklist]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name:             { type: string }
+                description:      { type: string }
+                type:             { type: string, enum: [FILE_UPLOAD, TEXT_INPUT] }
+                required:         { type: boolean, default: true }
+                allowMultiple:    { type: boolean, default: false }
+                maxFileSizeMb:    { type: integer }
+                allowedFileTypes: { type: array, items: { type: string } }
+                sortOrder:        { type: integer }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChecklistItem' }
+
+  /api/cases/{id}/items/{itemId}:
+    put:
+      tags: [checklist]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:  { type: string, enum: [APPROVED, REJECTED] }
+                name:    { type: string }
+                required: { type: boolean }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChecklistItem' }
+    delete:
+      tags: [checklist]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Item deleted }
+
+  # ── STORAGE (admin side) ─────────────────────────────────────────
+  /api/cases/{id}/items/{itemId}/upload-url:
+    post:
+      tags: [storage]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, sizeBytes, mimeType]
+              properties:
+                filename:  { type: string }
+                sizeBytes: { type: integer }
+                mimeType:  { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presignedUrl: { type: string }
+                  s3Key:        { type: string }
+                  expiresAt:    { type: string, format: date-time }
+
+  /api/cases/{id}/items/{itemId}/confirm-upload:
+    post:
+      tags: [storage]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, sizeBytes, s3Key, mimeType]
+              properties:
+                filename:  { type: string }
+                sizeBytes: { type: integer }
+                s3Key:     { type: string }
+                mimeType:  { type: string }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+
+  /api/documents/{docId}:
+    delete:
+      tags: [storage]
+      parameters:
+        - name: docId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Document deleted }
+
+  # ── UPLOAD PORTAL (public, no auth) ─────────────────────────────
+  /api/upload/{token}:
+    get:
+      tags: [upload-portal]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  referenceNo:  { type: string }
+                  customerName: { type: string }
+                  status:       { type: string }
+                  expiresAt:    { type: string, format: date-time, nullable: true }
+                  checklist:    { type: array, items: { $ref: '#/components/schemas/ChecklistItem' } }
+        '404': { description: Token invalid }
+        '410': { description: Link expired }
+
+  /api/upload/{token}/items/{itemId}/upload-url:
+    post:
+      tags: [upload-portal]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, sizeBytes, mimeType]
+              properties:
+                filename:  { type: string }
+                sizeBytes: { type: integer }
+                mimeType:  { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presignedUrl: { type: string }
+                  s3Key:        { type: string }
+                  expiresAt:    { type: string, format: date-time }
+        '400': { description: File type or size not allowed }
+        '410': { description: Link expired }
+
+  /api/upload/{token}/items/{itemId}/confirm:
+    post:
+      tags: [upload-portal]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, sizeBytes, s3Key, mimeType]
+              properties:
+                filename:  { type: string }
+                sizeBytes: { type: integer }
+                s3Key:     { type: string }
+                mimeType:  { type: string }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+
+  /api/upload/{token}/items/{itemId}/text:
+    post:
+      tags: [upload-portal]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChecklistItem' }
+
+  # ── TEMPLATES ────────────────────────────────────────────────────
+  /api/templates:
+    get:
+      tags: [checklist]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Template' }
+    post:
+      tags: [checklist]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, items]
+              properties:
+                name:  { type: string }
+                tag:   { type: string }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, type]
+                    properties:
+                      name:             { type: string }
+                      description:      { type: string }
+                      type:             { type: string, enum: [FILE_UPLOAD, TEXT_INPUT] }
+                      required:         { type: boolean }
+                      allowMultiple:    { type: boolean }
+                      maxFileSizeMb:    { type: integer }
+                      allowedFileTypes: { type: array, items: { type: string } }
+                      sortOrder:        { type: integer }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+
+  /api/templates/{id}:
+    get:
+      tags: [checklist]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Template'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ChecklistItem' }
+    put:
+      tags: [checklist]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                tag:  { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+    delete:
+      tags: [checklist]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Template deleted }
+
+  /api/templates/{id}/apply/{caseId}:
+    post:
+      tags: [checklist]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ChecklistItem' }
+
+  # ── LINK SHARING ─────────────────────────────────────────────────
+  /api/documents/{docId}/share:
+    post:
+      tags: [sharing]
+      parameters:
+        - name: docId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:  { type: string, nullable: true }
+                expiresAt: { type: string, format: date-time, nullable: true }
+                maxViews:  { type: integer, nullable: true }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShareLink' }
+
+  /api/cases/{id}/share-links:
+    get:
+      tags: [sharing]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ShareLink' }
+
+  /api/share-links/{linkId}:
+    delete:
+      tags: [sharing]
+      parameters:
+        - name: linkId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Link revoked }
+
+  /api/shared/{token}:
+    get:
+      tags: [sharing]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isPasswordProtected: { type: boolean }
+                  expiresAt:           { type: string, format: date-time, nullable: true }
+                  filename:            { type: string }
+        '404': { description: Link not found }
+        '410': { description: Link expired or view limit reached }
+
+  /api/shared/{token}/access:
+    post:
+      tags: [sharing]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string, nullable: true }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  downloadUrl: { type: string }
+                  expiresAt:   { type: string, format: date-time }
+        '401': { description: Wrong password }
+        '410': { description: Link expired }
+
+  # ── NOTIFICATIONS ────────────────────────────────────────────────
+  /api/notifications:
+    get:
+      tags: [notifications]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Notification' }
+
+  /api/notifications/read:
+    post:
+      tags: [notifications]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '200': { description: Marked as read }
+
+  # ── SUPER ADMIN (internal — DocPanther ops only) ─────────────────
+  /api/admin/tenants:
+    get:
+      tags: [superadmin]
+      summary: List all tenants with pod info
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Tenant'
+                        - type: object
+                          properties:
+                            podId:       { type: string, format: uuid }
+                            podRegion:   { type: string }
+                            storageGb:   { type: number }
+                            casesTotal:  { type: integer }
+
+  /api/admin/tenants/{id}/move-pod:
+    post:
+      tags: [superadmin]
+      summary: Move tenant to a different pod
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetPodId]
+              properties:
+                targetPodId: { type: string, format: uuid }
+      responses:
+        '200': { description: Migration initiated }
+
+  /api/admin/pods:
+    get:
+      tags: [superadmin]
+      summary: List all pods with health metrics
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:           { type: string, format: uuid }
+                    region:       { type: string }
+                    type:         { type: string, enum: [SHARED, DEDICATED] }
+                    status:       { type: string, enum: [ACTIVE, DRAINING, FULL] }
+                    tenantCount:  { type: integer }
+                    storageGb:    { type: number }
+    post:
+      tags: [superadmin]
+      summary: Provision a new pod
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [region, type]
+              properties:
+                region: { type: string }
+                type:   { type: string, enum: [SHARED, DEDICATED] }
+      responses:
+        '201': { description: Pod provisioned }
+
+  /api/admin/stats:
+    get:
+      tags: [superadmin]
+      summary: Platform-wide stats
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalTenants:     { type: integer }
+                  totalIndividuals: { type: integer }
+                  totalCases:       { type: integer }
+                  totalStorageGb:   { type: number }
+                  activePodsCount:  { type: integer }
+                  mrrInr:           { type: number }

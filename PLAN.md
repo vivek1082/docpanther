@@ -411,6 +411,7 @@ LINK_SHARED, LINK_VIEWED, LINK_PASSWORD_FAILED
 ```
 
 All modules write to AuditService. Extractable to DynamoDB/Kinesis later without touching other modules.
+Audit writes are async (`@Async`) — never slow down the main request.
 
 ---
 
@@ -433,6 +434,39 @@ Email templates stored in DB, customizable per tenant.
 GET  /api/notifications         → list in-app notifications for current user
 POST /api/notifications/read    → mark as read
 ```
+
+---
+
+## Module 10 — SuperAdmin Portal (Internal — DocPanther ops only)
+
+This is YOUR internal control panel, Vivek. Separate from the product UI. Accessible only to `SUPER_ADMIN` role users.
+
+### What it provides
+
+**Tenant management:**
+- List all tenants with: plan, region, pod, storage used, case count, MRR
+- View tenant detail, change plan (FREE → STARTER etc.)
+- Suspend/reactivate tenant
+- Impersonate tenant (generate short-lived debug token — fully audited)
+
+**Pod management:**
+- List all pods with health: tenant count, storage GB, DB size, status (ACTIVE/DRAINING/FULL)
+- Provision new pod in a given region (triggers Terraform automation)
+- Move tenant to a different pod (background migration job)
+- Mark pod as DRAINING (no new tenants assigned, existing migrate out)
+
+**Platform stats:**
+- Total tenants, individuals, cases, documents, total storage GB
+- MRR breakdown by plan
+- Active pods per region
+
+**User lookup:**
+- Find any user by email across control plane
+- See their tenant membership, plan, login history
+
+**Endpoints:** `/api/admin/**` — all require `SUPER_ADMIN` role. See `contracts/openapi.yaml` paths tagged `superadmin`.
+
+**Security:** SuperAdmin endpoints are behind a separate internal ALB that is NOT routed through CloudFront — only accessible via VPN or bastion. Never exposed publicly.
 
 ---
 
@@ -516,16 +550,25 @@ Packaged as modules — extractable to microservices later without a rewrite.
 ```
 com.docpanther
 ├── auth/           → Form-based + Google OAuth, JWT issue/refresh/revoke, email verify
-├── tenant/         → Org CRUD, member invites, region routing
+├── tenant/         → Org CRUD, member invites, region routing, pod DataSource router
 ├── filesystem/     → Folders CRUD, file_nodes, permissions, search
-├── cases/          → Case CRUD, upload token generation, folder placement
+├── cases/          → Case CRUD, upload token generation, folder placement, ZIP download
 ├── checklist/      → Checklist items, templates, item status flow
-├── storage/        → S3 presigned URLs, confirm upload, ZIP streaming
+├── storage/        → S3 presigned URLs, confirm upload, public upload portal
 ├── sharing/        → ShareLink create/access/password validation
 ├── notifications/  → SES email, in-app notifications, reminders
-├── audit/          → AuditLog service (all modules call this)
-└── common/         → Security config, error handling, region router, rate limiter
+├── audit/          → AuditLog service (all modules call this, async writes)
+├── superadmin/     → Internal ops: tenant mgmt, pod mgmt, platform stats, impersonation
+└── common/         → Security config, error handling, shared interfaces (FileStorage, Mailer, AuditLogger)
 ```
+
+**Module interface contracts (in `common/`):**
+```java
+FileStorage   → presignedPutUrl(), presignedGetUrl(), delete()
+Mailer        → sendUploadLink(), sendReminder(), sendInvite()
+AuditLogger   → log(action, actorType, actorId, tenantId, caseId, itemId, metadata)
+```
+All modules depend on these interfaces, never on concrete implementations.
 
 **Key libraries:**
 - Spring Boot 3.2, Spring Security, Spring Data JPA
@@ -602,8 +645,9 @@ Shield Standard → always-on DDoS protection (free tier)
 | **4** | Templates (create, apply to case), ZIP download streaming, customer public upload portal (token-based) |
 | **5** | Link sharing (password-protected), SES email notifications, reminder sending |
 | **6** | Tenant registration (form-based), region selection, region routing (DataSource switching), team member invites |
-| **7** | Next.js frontend (web/) — auth, file explorer dashboard, case management, upload portal UI |
-| **8** | AWS infra (CDK/Terraform), CloudFront + WAF config, ECS deployment, per-region setup |
+| **7** | SuperAdmin portal — tenant management, pod management, platform stats, user lookup |
+| **8** | Next.js frontend (web/) — auth, file explorer dashboard, case management, upload portal UI |
+| **9** | AWS infra (Terraform), CloudFront + WAF config, ECS deployment, per-region pod setup |
 
 ---
 
