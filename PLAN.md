@@ -186,6 +186,13 @@ GET    /api/fs/search?q=               → search across all accessible folders/
 
 A **Case** = one document collection request for one customer. Lives inside a folder or at root.
 
+**Customer Upload URL format:**
+- Tenant user:     `hdfc.docpanther.com/{shortToken}`   (subdomain = tenant slug)
+- Individual user: `app.docpanther.com/{shortToken}`
+- `shortToken` is a short random URL-safe string (10 chars, e.g. nanoid) — not a UUID
+- The subdomain identifies the tenant; the token identifies the case
+- URL is human-shareable, copy-pasteable, works in WhatsApp/email without breaking
+
 **Case fields:**
 - `folder_id` — nullable; null means root level
 - `reference_no` — internal ref (e.g. LOAN-2024-001)
@@ -193,17 +200,24 @@ A **Case** = one document collection request for one customer. Lives inside a fo
 - `tags[]` — for filtering/grouping
 - `status` — PENDING / PARTIAL / COMPLETE (derived from checklist item statuses)
 - `storage_mode` — FLAT or STRUCTURED (affects ZIP download structure, not S3 path)
-- `upload_token` — UUID, unique, unguessable — powers the customer upload URL
-- `expires_at` — optional link expiry
+- `upload_token` — short random string (10 chars), unique — powers the customer upload URL
+- `expires_at` — admin sets this at case creation: 7 days / 30 days / custom date / never
+- `max_file_size_mb` — per-case file size limit set by admin (e.g. 10MB, 50MB, 100MB)
+- `allowed_file_types` — admin picks allowed extensions/types at case level (e.g. PDF, JPEG, DOCX, any)
 
-**Customer Upload URL:** `{tenant}.docpanther.com/upload/{token}` — no auth required
+**Case creation options (admin chooses):**
+- Link expiry: 7 days / 30 days / 90 days / custom date / never
+- Max file size: 5MB / 10MB / 25MB / 50MB / 100MB / custom
+- Allowed file types: PDF only / Images (JPG, PNG) / Documents (PDF, DOCX, XLSX) / All / custom list
+
+These defaults can also be set at the tenant level and overridden per case.
 
 **Endpoints:**
 ```
 GET    /api/cases               → list cases (paginated, filter by folder/status/tags)
-POST   /api/cases               → create case { folderId?, ...fields }
+POST   /api/cases               → create case { folderId?, expiresAt?, maxFileSizeMb?, allowedFileTypes[], ...}
 GET    /api/cases/{id}          → case detail + checklist items
-PUT    /api/cases/{id}          → update case metadata
+PUT    /api/cases/{id}          → update case metadata (including expiry, file limits)
 DELETE /api/cases/{id}          → delete case
 POST   /api/cases/{id}/move     → move case to different folder
 POST   /api/cases/{id}/remind   → send reminder email to customer
@@ -219,6 +233,13 @@ GET    /api/cases/{id}/audit    → paginated audit log for case
 - `FILE_UPLOAD` → customer uploads a file → stored in S3
 - `TEXT_INPUT` → customer fills a text field → stored in DB (included as .txt in ZIP)
 
+### FILE_UPLOAD item — per-item file restrictions
+Each FILE_UPLOAD item can override the case-level defaults:
+- `max_file_size_mb` — override case-level limit for this specific item (e.g. passport scan = 5MB)
+- `allowed_file_types` — override allowed types for this item (e.g. passport = JPG/PNG/PDF only)
+- `allow_multiple` — whether customer can upload multiple files for this item
+- Validation enforced both client-side (UI) and server-side (before generating presigned URL)
+
 ### Item Status Flow
 ```
 PENDING → UPLOADED → APPROVED
@@ -226,9 +247,10 @@ PENDING → UPLOADED → APPROVED
 ```
 
 ### Templates
-- Reusable lists of checklist items (name, type, required, description, order)
+- Reusable lists of checklist items (name, type, required, description, order, file restrictions)
 - Global templates (DocPanther defaults) + tenant-specific templates
 - Creating a case: pick a template → items are **copied** into the case (independent snapshot)
+- Template items carry their file size/type restrictions; admin can override per case after applying
 
 **Endpoints:**
 ```
@@ -251,27 +273,37 @@ POST   /api/templates/{id}/apply/{caseId}       → copy template items into a c
 
 Backend never handles file bytes. Client uploads directly to S3.
 
-**How the upload link works (important):**
-- The email/link sent to customers is just `{tenant}.docpanther.com/upload/{token}` — a permanent URL
-- This link never expires (unless admin sets `expires_at` on the case)
-- When the customer opens the link (today, tomorrow, next week), the backend generates a **fresh** presigned S3 PUT URL on-demand at that moment
-- The presigned URL has a 15-min expiry — that's just the window to complete the actual file PUT to S3
-- So the customer always gets a fresh short-lived presigned URL whenever they are actively uploading
+**How the upload link works:**
+- Customer URL: `hdfc.docpanther.com/{shortToken}` — clean, shareable, works in any messaging app
+- This link is permanent — never expires unless admin set an `expires_at`
+- When customer opens the link the backend checks: is case expired? if yes → show expired screen
+- When customer clicks Upload on an item, backend generates a **fresh** presigned S3 PUT URL on-demand
+- The presigned URL has 15-min expiry — only the window to complete the actual S3 PUT
+- Customer can return tomorrow and upload remaining items — they always get a fresh presigned URL
+
+**Validation before issuing presigned URL (server-side enforced):**
+- Case not expired (`expires_at` check)
+- File size within limit (`Content-Length` header checked; S3 condition key `content-length-range` embedded in presigned URL so S3 itself rejects oversized uploads)
+- File type in allowed list (checked by extension + MIME type)
+- Item not already APPROVED (can't re-upload an approved item)
 
 **Upload flow:**
 ```
-Customer opens upload link any time
+Customer opens  hdfc.docpanther.com/{shortToken}  any time
     ↓
-GET /api/upload/{token}  → backend returns case + checklist (checks case not expired)
+Frontend → GET /api/upload/{shortToken}
+    → backend validates: not expired → returns case + checklist (no sensitive admin data)
     ↓
-Customer clicks Upload on a checklist item
+Customer selects file and clicks Upload on a checklist item
     ↓
-POST /api/upload/{token}/items/{itemId}/upload-url
-    → backend generates fresh S3 presigned PUT URL (15 min) → returns to browser
+Frontend → POST /api/upload/{shortToken}/items/{itemId}/upload-url  { filename, size, mimeType }
+    → backend validates: size ≤ limit, type in allowed list, case not expired
+    → generates fresh S3 presigned PUT URL (15 min) with embedded size constraint
+    → returns presigned URL to browser
     ↓
-Browser PUT file directly to S3  (backend never touches bytes)
+Browser PUT file directly to S3   (backend never touches bytes)
     ↓
-POST /api/upload/{token}/items/{itemId}/confirm  { filename, size, s3Key }
+Frontend → POST /api/upload/{shortToken}/items/{itemId}/confirm  { filename, size, s3Key }
     → backend saves Document record, updates item status → UPLOADED, fires audit event
 ```
 
@@ -295,13 +327,14 @@ DELETE /api/documents/{docId}                         → delete a document
 GET    /api/cases/{id}/download                       → stream ZIP of all documents
 ```
 
-**Public customer endpoints (no auth, token-based):**
+**Public customer endpoints (no auth — resolved via subdomain + shortToken):**
 ```
-GET  /api/upload/{token}                            → case + checklist (no sensitive admin data)
-POST /api/upload/{token}/items/{itemId}/upload-url  → fresh presigned PUT URL generated on-demand
-POST /api/upload/{token}/items/{itemId}/confirm     → confirm upload, save Document record
-POST /api/upload/{token}/items/{itemId}/text        → submit text value
+GET  /api/upload/{shortToken}                            → case + checklist (validates expiry)
+POST /api/upload/{shortToken}/items/{itemId}/upload-url  → validate size+type, generate fresh presigned URL
+POST /api/upload/{shortToken}/items/{itemId}/confirm     → confirm upload, save Document record
+POST /api/upload/{shortToken}/items/{itemId}/text        → submit text value
 ```
+The subdomain (`hdfc`) is extracted from the `Host` header to resolve the tenant; the shortToken identifies the case.
 
 ---
 
