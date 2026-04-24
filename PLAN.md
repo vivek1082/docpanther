@@ -287,6 +287,30 @@ Backend never handles file bytes. Client uploads directly to S3.
 - File type in allowed list (checked by extension + MIME type)
 - Item not already APPROVED (can't re-upload an approved item)
 
+**Partial uploads — uploading one document now, rest later:**
+
+The 15-min presigned URL is **per upload action**, not for the entire case. Each item gets its own independent presigned URL only when the customer actively clicks Upload on that item. There is no "session" that expires.
+
+```
+Day 1 — Customer opens link, uploads Item 1 only:
+  Open hdfc.docpanther.com/{token} → sees 10 items
+  Click Upload on Item 1 → POST .../upload-url → get fresh presigned URL (15 min clock starts)
+  PUT file to S3 → POST confirm → Item 1 = UPLOADED ✓
+  Close browser. Done for today.
+
+Day 3 — Customer comes back, uploads Items 2 and 5:
+  Open same link → sees Items 2-10 still PENDING, Item 1 UPLOADED
+  Click Upload on Item 2 → POST .../upload-url → get fresh presigned URL (new 15-min clock)
+  PUT file → confirm → Item 2 = UPLOADED ✓
+  Click Upload on Item 5 → new presigned URL → upload → Item 5 = UPLOADED ✓
+  Close browser.
+
+Next week — admin sees case is PARTIAL, sends reminder email
+  Customer opens link again → uploads remaining items
+```
+
+Key point: the 15 minutes is only the time allowed to complete the S3 PUT for one file once the customer has started uploading it. If a file is 500MB and the connection is slow, 15 minutes is enough. If not, the presigned URL is regenerated on retry — no impact on the overall case.
+
 **Upload flow:**
 ```
 Customer opens  hdfc.docpanther.com/{shortToken}  any time
@@ -294,7 +318,7 @@ Customer opens  hdfc.docpanther.com/{shortToken}  any time
 Frontend → GET /api/upload/{shortToken}
     → backend validates: not expired → returns case + checklist (no sensitive admin data)
     ↓
-Customer selects file and clicks Upload on a checklist item
+Customer selects file and clicks Upload on one checklist item
     ↓
 Frontend → POST /api/upload/{shortToken}/items/{itemId}/upload-url  { filename, size, mimeType }
     → backend validates: size ≤ limit, type in allowed list, case not expired
@@ -305,6 +329,8 @@ Browser PUT file directly to S3   (backend never touches bytes)
     ↓
 Frontend → POST /api/upload/{shortToken}/items/{itemId}/confirm  { filename, size, s3Key }
     → backend saves Document record, updates item status → UPLOADED, fires audit event
+    ↓
+Customer can close browser — remaining items stay PENDING until they return
 ```
 
 **S3 path structure:**
@@ -578,6 +604,181 @@ Shield Standard → always-on DDoS protection (free tier)
 | **6** | Tenant registration (form-based), region selection, region routing (DataSource switching), team member invites |
 | **7** | Next.js frontend (web/) — auth, file explorer dashboard, case management, upload portal UI |
 | **8** | AWS infra (CDK/Terraform), CloudFront + WAF config, ECS deployment, per-region setup |
+
+---
+
+## Billing Plans
+
+### Individual Plans
+
+| Plan | Price | Cases/month | Storage | Max file size | Features |
+|---|---|---|---|---|---|
+| **Free** | ₹0 | 5 | 1 GB | 10 MB | Basic templates, email link |
+| **Pro** | ₹999/mo | 100 | 25 GB | 100 MB | Custom expiry, file type rules, ZIP download, audit log |
+| **Business** | ₹2,499/mo | Unlimited | 100 GB | 500 MB | Everything + link sharing, reminders, priority support |
+
+### Tenant / Enterprise Plans
+
+| Plan | Price | Team members | Cases/month | Storage | Features |
+|---|---|---|---|---|---|
+| **Starter** | ₹4,999/mo | 5 | 200 | 50 GB | Subdomain, templates, audit log, SES email |
+| **Growth** | ₹14,999/mo | 25 | Unlimited | 500 GB | Custom email templates, advanced permissions, dedicated pod option |
+| **Enterprise** | Custom | Unlimited | Unlimited | Unlimited | Dedicated pod, custom region, SSO/SAML, SLA, onboarding support |
+
+**Notes:**
+- Storage = sum of all uploaded files across all cases
+- Overage: ₹2/GB beyond plan limit
+- Annual discount: 20% off
+- Free trial: 14 days on any paid plan
+- Pod upgrade: Growth tenants can opt into a dedicated pod for ₹5,000/month extra
+
+---
+
+## Overall Architecture — How It All Fits Together
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     BROWSER / APP                        │
+│  app.docpanther.com        hdfc.docpanther.com           │
+│  (admin dashboard)         (customer upload portal)      │
+└───────────────┬────────────────────────┬─────────────────┘
+                │                        │
+                ▼                        ▼
+┌──────────────────────────────────────────────────────────┐
+│              CloudFront + WAF + Route53                  │
+│   *.docpanther.com wildcard cert (ACM)                   │
+│   WAF: rate limit, SQL injection, XSS rules              │
+└────────────────────────┬─────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│           ALB  (only accepts CloudFront IPs)             │
+└────────────────────────┬─────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│         ECS Fargate — Spring Boot (stateless)            │
+│                                                          │
+│  Request arrives:                                        │
+│  1. Extract tenant from Host header subdomain            │
+│  2. Check Redis: tenant → pod connection URL             │
+│  3. Cache miss → query Control Plane DB → cache it       │
+│  4. All DB queries go to that pod's Aurora               │
+│  5. S3 operations go to that tenant's region bucket      │
+└──────┬──────────────────────────┬────────────────────────┘
+       │                          │
+       ▼                          ▼
+┌────────────────┐    ┌─────────────────────────────────┐
+│ Control Plane  │    │  Pod Aurora (tenant's region)   │
+│ Aurora (India) │    │  folders, cases, documents,     │
+│ users, tenants │    │  audit_logs, share_links ...    │
+│ pod routing map│    │                                 │
+└────────────────┘    └─────────────────────────────────┘
+       │                          │
+       ▼                          ▼
+┌────────────────┐    ┌─────────────────────────────────┐
+│ ElastiCache    │    │  S3 bucket (tenant's region)    │
+│ Redis          │    │  tenant/{tenant_id}/{case_id}/  │
+│ JWT tokens     │    │  {item_id}/{filename}           │
+│ pod cache      │    │                                 │
+│ rate limiting  │    │  Files uploaded directly by     │
+└────────────────┘    │  browser via presigned URL —    │
+                      │  backend never touches bytes    │
+                      └─────────────────────────────────┘
+
+S3 upload flow (customer side):
+  Browser → POST /api/upload/{token}/items/{id}/upload-url
+         → Spring Boot → generate presigned PUT URL → return
+  Browser → PUT file directly to S3 (no backend in the middle)
+  Browser → POST confirm → Spring Boot → save Document record
+```
+
+**Key design principles:**
+- Backend is fully stateless — ECS can scale horizontally, any instance handles any request
+- Files never go through backend — S3 presigned URLs keep backend CPU/memory free
+- Pod routing is transparent to the app — just a DataSource switch, no business logic changes
+- Moving a tenant to a new pod = update one row in control plane + wait for Redis TTL to expire
+
+---
+
+## Honest Assessment — What's Strong and What's Risky
+
+### What's genuinely good
+- **The niche is real.** Loan officers, CA firms, real estate agents, HR teams — they all collect documents manually today (WhatsApp, email). The pain is genuine.
+- **DPDP compliance angle** is a real differentiator. India's DPDP Act obligations kick in 2027. A product that is compliant by design (data residency, audit log, consent trail) is valuable — especially for NBFCs and healthtech. This is your moat.
+- **The pod architecture** is sophisticated and correct. Most SaaS companies don't think about this until they're in pain. Planning it now is smart.
+- **Checklist + upload portal** is the right UX. Better than "send us an email with attachments" and easier than asking a customer to use a full document management tool.
+- **Solo builder with AI tooling** means you can move faster than a team of 3 who spend half their time in meetings.
+
+### What's risky / needs honest thinking
+
+**1. Competition from free tools is brutal.**
+Customers are using Google Forms + Drive, WhatsApp, email. You're not competing with DocuSign — you're competing with "just send it on WhatsApp bhai." Your pitch has to be about organization, audit trail, and compliance — not just "easier uploads."
+
+**2. Enterprise doesn't self-serve.**
+HDFC won't sign up via a form at ₹14,999/month. That requires a sales person, a procurement process, a security review, and a DPA (Data Processing Agreement). Be realistic — your first 12 months is SMBs (CA firms, small NBFCs, real estate agencies) who CAN self-serve. Plan your GTM accordingly.
+
+**3. India market price sensitivity is real.**
+₹4,999/month for Starter might be too high for a 5-person CA firm. They'll ask "why not just use Google Drive?" You need either a strong compliance/audit answer or a freemium hook that gets them dependent before the paywall.
+
+**4. Two startups, one person.**
+DocPanther + Privyuh simultaneously is a lot. Privyuh (DPDP compliance) and DocPanther are adjacent but not the same customer journey. Either they converge (DocPanther IS the DPDP-compliant document collection product) or one will get neglected. Consider: is DocPanther the product and DPDP compliance a feature/selling point, not a separate SaaS?
+
+**5. Build vs. buy commoditisation.**
+In 2-3 years, something like this will be a commodity. Your moat has to be: deep workflow integrations (loan origination systems, HRMS, CRMs), compliance certifications (ISO 27001, SOC 2), and brand trust in regulated industries. Start planting those flags early.
+
+### The bet worth making
+The DPDP compliance + document collection combination for Indian regulated industries (NBFC, healthtech, edtech, D2C with KYC) — that's defensible. Go narrow, go deep, win that segment before expanding.
+
+---
+
+## AWS Cost Estimate
+
+### Phase 1 — Early stage (0–50 tenants, India only)
+
+| Service | Config | Monthly cost |
+|---|---|---|
+| Control Plane RDS Aurora | db.t3.medium, single-AZ | ~$50 |
+| Pod RDS Aurora (1 shared pod) | db.t3.medium, single-AZ | ~$50 |
+| ECS Fargate | 1 vCPU / 2GB, 2 tasks | ~$60 |
+| ElastiCache Redis | cache.t3.micro | ~$15 |
+| ALB | 1 load balancer | ~$18 |
+| CloudFront | 100 GB transfer | ~$10 |
+| S3 | 100 GB storage + requests | ~$5 |
+| SES | 10,000 emails | ~$1 |
+| Route53 | Hosted zone + queries | ~$2 |
+| WAF | Basic rules | ~$10 |
+| Secrets Manager | 5 secrets | ~$2 |
+| **Total** | | **~$223/month** |
+
+Break-even: 5 paying tenants at Starter plan (₹4,999 × 5 = ₹24,995 ≈ $300).
+
+### Phase 2 — Growing (50–500 tenants, 2 regions)
+
+| Service | Monthly cost |
+|---|---|
+| Control Plane RDS Aurora (Multi-AZ) | ~$130 |
+| 3–4 shared pods (ap-south-1 + us-east-1) | ~$300 |
+| 2–3 dedicated pods (large enterprises) | ~$400 |
+| ECS Fargate (auto-scaling, 4–8 tasks) | ~$250 |
+| Redis (2 regions) | ~$80 |
+| ALB (2 regions) | ~$50 |
+| CloudFront (1 TB transfer) | ~$85 |
+| S3 (5 TB storage) | ~$120 |
+| SES (100K emails) | ~$10 |
+| WAF + Shield Advanced | ~$100 |
+| **Total** | **~$1,525/month** |
+
+Break-even: ~30 paying tenants at Starter plan, or 10 at Growth.
+
+### Phase 3 — Scale (500+ tenants, 4 regions)
+Estimated $5,000–$10,000/month — but at this point ARR is $1M+ so AWS is not the constraint.
+
+**Cost optimisation levers:**
+- RDS reserved instances (1-year): ~40% savings on DB
+- S3 Intelligent Tiering: auto-moves old files to cheaper storage class
+- ECS Spot for non-prod workloads
+- CloudFront caching: reduces S3 GET costs significantly
 
 ---
 
