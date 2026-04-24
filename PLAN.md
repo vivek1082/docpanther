@@ -96,11 +96,98 @@ DELETE /api/tenants/me/members/{userId}     → remove member
 
 ---
 
-## Module 3 — Case Management
+## Module 3 — File System & Folder Management
 
-A **Case** = one document collection request for one customer.
+The dashboard shows a **file explorer** — folders, cases, and directly uploaded files — like a lightweight Google Drive. S3 is the storage backend; the folder tree lives in the DB.
+
+### Folder Structure
+- User can create named folders at root level or nested inside other folders (unlimited depth)
+- A **Case** can live inside a folder OR at root level (`folder_id` nullable)
+- Files can be uploaded directly into any folder (not via a case) — "manual upload"
+- Folder tree is stored in DB (`folders` table with `parent_id` self-reference)
+
+### Dashboard View
+```
+My Files (root)
+├── 📁 HDFC Bank Loans
+│   ├── 📋 Case: Rahul Sharma — LOAN-001   [PARTIAL]
+│   ├── 📋 Case: Priya Singh — LOAN-002    [PENDING]
+│   └── 📄 template_guide.pdf              (manually uploaded)
+├── 📁 Q1 Collections
+│   └── 📋 Case: Amit Kumar — INV-101      [COMPLETE]
+└── 📋 Case: Walk-in — MISC-009            [PENDING]  (root level)
+```
+
+### Operations
+- **Folder**: create, rename, delete (deletes contents recursively), move
+- **Case**: create inside folder or at root, move between folders
+- **File**: manual upload, rename, delete, move, download
+- **Search**: full-text search across folder names, case names, reference numbers, file names
+- **Permissions**: folder-level — owner can share with specific users (VIEW or EDIT)
+
+### Permission Model
+```
+OWNER   → full control (create, rename, delete, share)
+EDIT    → can upload, create cases, rename within folder
+VIEW    → read-only, can download files
+```
+- Permissions are inherited by subfolders and their contents
+- Individual users: share with any registered user
+- Tenant users: share within org members only
+
+### DB Tables (added to product schema)
+```
+folders (
+  id, parent_id nullable,   -- null = root level
+  name, owner_id,
+  tenant_id nullable,        -- null = individual user
+  created_at, updated_at
+)
+
+folder_permissions (
+  id, folder_id, user_id,
+  permission  ENUM(VIEW, EDIT, OWNER),
+  granted_by, granted_at
+)
+
+file_nodes (                  -- directly uploaded files (not via case)
+  id, folder_id,
+  name, s3_key, size_bytes, content_type,
+  uploaded_by, created_at
+)
+```
+
+Cases table gets: `folder_id UUID nullable REFERENCES folders(id)`
+
+### Endpoints
+```
+GET    /api/fs                          → list root contents (folders + cases + files)
+GET    /api/fs/{folderId}               → list folder contents
+POST   /api/fs/folders                  → create folder { name, parentId? }
+PUT    /api/fs/folders/{id}             → rename folder
+DELETE /api/fs/folders/{id}             → delete folder (recursive)
+POST   /api/fs/folders/{id}/move        → move folder to new parent
+
+POST   /api/fs/folders/{id}/upload-url  → presigned PUT URL for direct file upload
+POST   /api/fs/folders/{id}/confirm-upload → confirm direct file upload
+PUT    /api/fs/files/{id}               → rename file
+DELETE /api/fs/files/{id}               → delete file
+POST   /api/fs/files/{id}/move          → move file to different folder
+
+POST   /api/fs/folders/{id}/permissions → grant permission to a user
+DELETE /api/fs/folders/{id}/permissions/{userId} → revoke permission
+
+GET    /api/fs/search?q=               → search across all accessible folders/cases/files
+```
+
+---
+
+## Module 4 — Case Management
+
+A **Case** = one document collection request for one customer. Lives inside a folder or at root.
 
 **Case fields:**
+- `folder_id` — nullable; null means root level
 - `reference_no` — internal ref (e.g. LOAN-2024-001)
 - `customer_name`, `customer_email`
 - `tags[]` — for filtering/grouping
@@ -113,11 +200,12 @@ A **Case** = one document collection request for one customer.
 
 **Endpoints:**
 ```
-GET    /api/cases               → list cases (paginated, filter by status/tags)
-POST   /api/cases               → create case
+GET    /api/cases               → list cases (paginated, filter by folder/status/tags)
+POST   /api/cases               → create case { folderId?, ...fields }
 GET    /api/cases/{id}          → case detail + checklist items
 PUT    /api/cases/{id}          → update case metadata
 DELETE /api/cases/{id}          → delete case
+POST   /api/cases/{id}/move     → move case to different folder
 POST   /api/cases/{id}/remind   → send reminder email to customer
 GET    /api/cases/{id}/download → stream ZIP of all documents
 GET    /api/cases/{id}/audit    → paginated audit log for case
@@ -125,7 +213,7 @@ GET    /api/cases/{id}/audit    → paginated audit log for case
 
 ---
 
-## Module 4 — Checklist & Templates
+## Module 5 — Checklist & Templates
 
 ### Checklist Item Types
 - `FILE_UPLOAD` → customer uploads a file → stored in S3
@@ -159,7 +247,7 @@ POST   /api/templates/{id}/apply/{caseId}       → copy template items into a c
 
 ---
 
-## Module 5 — File Storage (S3 + Presigned URLs)
+## Module 6 — File Storage (S3 + Presigned URLs)
 
 Backend never handles file bytes. Client uploads directly to S3.
 
@@ -201,7 +289,7 @@ POST /api/upload/{token}/items/{itemId}/text        → submit text value
 
 ---
 
-## Module 6 — Link Sharing
+## Module 7 — Link Sharing
 
 Admin shares any uploaded document as a protected link.
 
@@ -231,14 +319,17 @@ POST /api/shared/{token}/access        → public: validate password → return 
 
 ---
 
-## Module 7 — Audit Log
+## Module 8 — Audit Log
 
 Every action = one append-only row in `audit_logs`. Never updated.
 
 **Actions tracked:**
 ```
-CASE_CREATED, CASE_UPDATED, CASE_DELETED
-FILE_UPLOADED, FILE_APPROVED, FILE_REJECTED, FILE_DELETED
+FOLDER_CREATED, FOLDER_RENAMED, FOLDER_DELETED, FOLDER_MOVED
+FOLDER_PERMISSION_GRANTED, FOLDER_PERMISSION_REVOKED
+FILE_UPLOADED, FILE_RENAMED, FILE_DELETED, FILE_MOVED
+CASE_CREATED, CASE_UPDATED, CASE_DELETED, CASE_MOVED
+CHECKLIST_FILE_UPLOADED, CHECKLIST_FILE_APPROVED, CHECKLIST_FILE_REJECTED
 TEXT_SUBMITTED
 REMINDER_SENT
 LINK_SHARED, LINK_VIEWED, LINK_PASSWORD_FAILED
@@ -248,7 +339,7 @@ All modules write to AuditService. Extractable to DynamoDB/Kinesis later without
 
 ---
 
-## Module 8 — Notifications
+## Module 9 — Notifications
 
 **Email triggers (via AWS SES):**
 - Case created → upload link sent to customer
@@ -309,9 +400,10 @@ Packaged as modules — extractable to microservices later without a rewrite.
 
 ```
 com.docpanther
-├── auth/           → Google OAuth, JWT issue/refresh/revoke
+├── auth/           → Form-based + Google OAuth, JWT issue/refresh/revoke, email verify
 ├── tenant/         → Org CRUD, member invites, region routing
-├── cases/          → Case CRUD, upload token generation
+├── filesystem/     → Folders CRUD, file_nodes, permissions, search
+├── cases/          → Case CRUD, upload token generation, folder placement
 ├── checklist/      → Checklist items, templates, item status flow
 ├── storage/        → S3 presigned URLs, confirm upload, ZIP streaming
 ├── sharing/        → ShareLink create/access/password validation
@@ -382,13 +474,14 @@ Shield Standard → always-on DDoS protection (free tier)
 
 | Phase | What gets built |
 |---|---|
-| **1** | Spring Boot project, Flyway migrations, Google OAuth + JWT, individual user registration, `/api/auth/*`, `/api/auth/me` |
-| **2** | Case CRUD, checklist items (FILE_UPLOAD + TEXT_INPUT), S3 presigned upload flow, confirm upload, audit log |
-| **3** | Templates (create, apply to case), ZIP download streaming, customer public upload portal (token-based) |
-| **4** | Link sharing (password-protected), SES email notifications, reminder sending |
-| **5** | Tenant registration, region selection, region routing (DataSource switching), team member invites |
-| **6** | Next.js frontend (web/) — auth, dashboard, case management, upload portal UI |
-| **7** | AWS infra (CDK/Terraform), CloudFront + WAF config, ECS deployment, per-region setup |
+| **1** | Spring Boot project, Flyway migrations, form-based auth (register/login/verify email/reset password), Google OAuth (individual), JWT + Redis, `/api/auth/*` |
+| **2** | File system module — folders CRUD, folder permissions, direct file upload (presigned), search, audit log |
+| **3** | Case CRUD (with folder placement), checklist items (FILE_UPLOAD + TEXT_INPUT), S3 presigned upload, confirm upload |
+| **4** | Templates (create, apply to case), ZIP download streaming, customer public upload portal (token-based) |
+| **5** | Link sharing (password-protected), SES email notifications, reminder sending |
+| **6** | Tenant registration (form-based), region selection, region routing (DataSource switching), team member invites |
+| **7** | Next.js frontend (web/) — auth, file explorer dashboard, case management, upload portal UI |
+| **8** | AWS infra (CDK/Terraform), CloudFront + WAF config, ECS deployment, per-region setup |
 
 ---
 
