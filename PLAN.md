@@ -470,6 +470,264 @@ This is YOUR internal control panel, Vivek. Separate from the product UI. Access
 
 ---
 
+## Module 11 — Education Vertical (Coaching Institutes, Schools, Colleges)
+
+A complete vertical built on top of the existing infrastructure — no separate codebase. The institute is a tenant. Teachers are tenant members. Students are a new role type.
+
+### The Problem It Solves
+IAS coaching institutes, school chains, colleges are sharing notes, assignments, and resources over WhatsApp groups today. A batch of 300 students gets the wrong PDF because someone forwarded it incorrectly. There's no version control, no access control, no audit trail. DocPanther solves this cleanly.
+
+---
+
+### Core Concepts
+
+**Institute** = Tenant (e.g., `visionias.docpanther.com`)
+
+**Batch** = A group of students studying together (e.g., `IAS Batch 10 — 2025`)
+- An institute can have multiple batches
+- A student can be enrolled in multiple batches
+
+**Subject** = A topic within a batch (e.g., History, Polity, Geography)
+- Each subject has one or more teachers assigned
+
+**Teacher** = A `TENANT_MEMBER` with `TEACHER` sub-role — can only upload materials to their assigned subjects
+
+**Student** = New role `STUDENT` — can log in to the institute portal, view approved materials for their enrolled batches, upload to their personal folder only
+
+**Material** = A note, PDF, assignment, or resource uploaded by a teacher to a subject
+- Status: `PENDING_REVIEW → APPROVED / REJECTED`
+- On APPROVED → email blast to ALL enrolled students in that batch
+
+---
+
+### Roles in Education Vertical
+
+```
+TENANT_ADMIN   → Institute coordinator — manages batches, subjects, teachers, students, approves materials
+TEACHER        → Uploads materials to assigned subjects (sub-role of TENANT_MEMBER)
+STUDENT        → Reads approved materials + uploads to personal folder only
+```
+
+---
+
+### Data Model (new tables in pod DB)
+
+```sql
+batches (
+  id, tenant_id, name, year, description,
+  created_by, created_at, updated_at
+)
+
+batch_subjects (
+  id, batch_id, name, description,
+  created_at
+)
+
+subject_teachers (
+  subject_id, user_id   -- teacher must be TENANT_MEMBER with TEACHER sub-role
+)
+
+batch_enrollments (
+  batch_id, student_id (user_id),
+  enrolled_at
+)
+-- student can be in multiple batches (e.g., enrolled in IAS Batch 10 AND PT Batch 3)
+
+materials (
+  id, subject_id, batch_id, tenant_id,
+  title, description,
+  uploaded_by (teacher user_id),
+  document_id FK → documents table (actual file in S3),
+  status  ENUM(PENDING_REVIEW, APPROVED, REJECTED),
+  rejection_note,
+  approved_by, approved_at,
+  created_at
+)
+
+student_storage (
+  user_id, tenant_id,
+  quota_bytes DEFAULT 5368709120,  -- 5 GB
+  used_bytes  DEFAULT 0
+)
+-- updated on every student upload/delete
+```
+
+---
+
+### Material Upload & Approval Flow
+
+```
+1. Teacher logs into visionias.docpanther.com
+2. Opens subject → uploads PDF note (same S3 presigned URL flow)
+3. Material created with status = PENDING_REVIEW
+4. Admin sees notification: "New material pending review"
+
+5. Admin opens material → preview → clicks APPROVE or REJECT
+6. On APPROVE:
+   → Material status = APPROVED
+   → Audit log: MATERIAL_APPROVED
+   → Email blast fires (async): ALL students enrolled in that batch get email
+     Subject: "New material available: History — Chapter 5 Modern India"
+     Body: institute name, subject, material title, login link
+7. On REJECT:
+   → Teacher gets notified with rejection note
+   → Material status = REJECTED (teacher can re-upload revised version)
+```
+
+---
+
+### Student Experience
+
+**Login:** `visionias.docpanther.com/student` → email + password → student dashboard
+
+**Dashboard shows:**
+```
+My Batches
+├── IAS Batch 10 — 2025
+│   ├── History (3 materials)
+│   │   ├── ✅ Modern India — Chapter 5.pdf       [Download]
+│   │   ├── ✅ Ancient India — Overview.pdf       [Download]
+│   │   └── ✅ Medieval India — Sultanate.pdf     [Download]
+│   ├── Polity (2 materials)
+│   └── Geography (1 material)
+└── PT Batch 3 — 2025
+    └── Current Affairs (5 materials)
+
+My Storage  (1.2 GB / 5 GB used)
+└── 📁 Personal Notes
+    ├── my_polity_notes.pdf
+    └── handwritten_scan.jpg
+```
+
+**Student rules:**
+- Can only see batches they are enrolled in
+- Can only see materials with `status = APPROVED`
+- Can download approved materials (presigned S3 GET URL, short-lived)
+- Can upload to their personal folder only (quota enforced server-side)
+- Cannot see other students' personal folders
+- Cannot see PENDING_REVIEW or REJECTED materials
+
+---
+
+### Student Personal Folder (5 GB)
+
+- Every student gets a personal folder at: `tenant/{tenant_id}/students/{student_id}/`
+- Quota: 5 GB by default (configurable per institute plan)
+- Uses same S3 presigned URL flow — before issuing presigned URL, backend checks:
+  ```
+  used_bytes + new_file_size ≤ quota_bytes  →  proceed
+  else → 429 Quota Exceeded
+  ```
+- `student_storage.used_bytes` updated after confirm-upload and file delete
+- Student can create sub-folders within their personal folder
+
+---
+
+### Institute Admin Capabilities
+
+- Create/edit/delete batches
+- Add subjects to a batch, assign teachers to subjects
+- Enroll students in batches (bulk CSV import: name, email → invite email sent)
+- Remove student from a batch
+- Approve/reject materials with notes
+- View all materials across all batches with filter by status/subject
+- View per-student storage usage
+- Adjust student quota individually (e.g., final-year student gets 10 GB)
+- Download all materials for a subject as ZIP
+
+---
+
+### Endpoints (new, to be added to openapi.yaml)
+
+```
+# Batch management
+GET    /api/edu/batches                          → list batches
+POST   /api/edu/batches                          → create batch
+GET    /api/edu/batches/{id}                     → batch detail + subjects
+PUT    /api/edu/batches/{id}                     → update batch
+DELETE /api/edu/batches/{id}                     → delete batch
+
+# Subject management
+POST   /api/edu/batches/{id}/subjects            → add subject
+PUT    /api/edu/subjects/{subjectId}             → update subject
+DELETE /api/edu/subjects/{subjectId}             → delete subject
+POST   /api/edu/subjects/{subjectId}/teachers    → assign teacher
+DELETE /api/edu/subjects/{subjectId}/teachers/{userId} → remove teacher
+
+# Student enrollment
+POST   /api/edu/batches/{id}/students            → enroll student(s) { emails[] }
+DELETE /api/edu/batches/{id}/students/{userId}   → unenroll student
+
+# Materials
+GET    /api/edu/subjects/{subjectId}/materials   → list materials (admin: all; student: approved only)
+POST   /api/edu/subjects/{subjectId}/materials/upload-url  → teacher: get presigned URL
+POST   /api/edu/subjects/{subjectId}/materials/confirm     → teacher: confirm upload, create material
+PUT    /api/edu/materials/{id}/approve           → admin: approve → triggers email blast
+PUT    /api/edu/materials/{id}/reject            → admin: reject with note
+DELETE /api/edu/materials/{id}                   → admin: delete material
+
+# Student personal folder
+GET    /api/edu/my/storage                       → student: folder contents + quota usage
+POST   /api/edu/my/upload-url                    → student: presigned URL (quota checked)
+POST   /api/edu/my/confirm-upload                → student: confirm upload
+DELETE /api/edu/my/files/{fileId}                → student: delete file from personal folder
+
+# Student dashboard
+GET    /api/edu/my/batches                       → student: list enrolled batches + subjects + material counts
+GET    /api/edu/my/batches/{batchId}/materials   → student: approved materials for a subject
+```
+
+---
+
+### What Reuses Existing Infrastructure
+
+| Existing | How Education Uses It |
+|---|---|
+| S3 presigned URL flow | Material upload by teacher, student personal folder upload |
+| SES email notifications | Email blast on material approval, student invite emails |
+| Audit log | MATERIAL_UPLOADED, MATERIAL_APPROVED, MATERIAL_REJECTED, STUDENT_ENROLLED |
+| Tenant subdomain routing | `visionias.docpanther.com` — same routing mechanism |
+| JWT + roles | STUDENT role added, same JWT system |
+| Folder/file system | Student personal folder uses existing file_nodes + folders |
+| Pod architecture | Education data lives in the same pod as the tenant — zero extra infra |
+
+---
+
+### Education Billing (add-on to tenant plans)
+
+| Feature | Included in | Extra cost |
+|---|---|---|
+| Up to 50 students | Growth plan | — |
+| Up to 500 students | Enterprise plan | — |
+| Student personal storage (5 GB/student) | Education add-on | ₹2,999/month per 100 students |
+| Bulk CSV student import | Growth+ | — |
+| Material approval workflow | All plans | — |
+
+---
+
+### GTM for Education Vertical
+
+**Beachhead customers:**
+- IAS coaching institutes (300–2000 students per batch, 10–50 subjects)
+- CA coaching (ICAI, Finshiksha, etc.)
+- JEE/NEET coaching chains (Aakash, Allen regional franchises)
+- School chains (Ryan International, DPS) for admin document workflows
+- College placement cells (existing use case)
+
+**Sales motion:**
+- Coordinator/admin is the buyer — ₹4,999–₹14,999/month
+- Students are users who create stickiness (their notes are on the platform)
+- Network effect: when one coaching institute uses it, students recommend it to friends at other institutes
+- WhatsApp group chaos is the pain point to lead with
+
+**Differentiation:**
+- Not a full LMS (no quizzes, no video) — just document sharing done right
+- DPDP compliant (student data stays in India)
+- Approval workflow prevents wrong material reaching students
+- Students have their own storage — not just consumers
+
+---
+
 ## Database Architecture — Pod Model
 
 ### Concept
