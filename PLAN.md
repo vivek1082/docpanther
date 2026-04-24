@@ -14,13 +14,17 @@ api.docpanther.com          → Java Spring Boot backend (backend/)
 ## User Modes
 
 ### Individual User
-- Google OAuth (Gmail) login only — Phase 1
-- On first login: name + email auto-filled → straight to dashboard
+- **Primary:** Sign-up form — name, email, password
+- **Secondary:** "Sign in with Google" (OAuth) as an alternative
+- Email verification required for form-based signup
+- Password reset via email link
 - No subdomain — uses `app.docpanther.com` directly
 - All data stored in India (ap-south-1) by default
 
 ### Tenant / Enterprise
-- Google OAuth → create org → pick name + slug → **choose AWS region** → dashboard
+- **Always form-based registration** — no OAuth shortcut for org creation
+- Registration form fields: org name, org slug (subdomain), admin name, work email, password, billing address, country, **AWS region selection**
+- Email verification required before org is activated
 - Slug becomes subdomain: `hdfc.docpanther.com`
 - Admin invites team members via email
 - Region choices: India (Mumbai), US (N. Virginia), Europe (Frankfurt), Middle East (UAE)
@@ -39,18 +43,36 @@ INDIVIDUAL      → Personal plan user
 
 ## Module 1 — Auth & Registration
 
-- Google OAuth 2.0 → on success: create/find user in DB → issue JWT
+**Two auth methods supported:**
+
+**Form-based (primary for both modes):**
+- Register: name + email + password → email verification link sent via SES
+- Click verify link → account activated → issue JWT
+- Login: email + password → issue JWT
+- Password reset: POST email → SES link → POST new password
+
+**Google OAuth (secondary — individual users only):**
+- "Sign in with Google" button → OAuth flow → create/find user → issue JWT
+- NOT available for enterprise registration (always form-based)
+
+**Session:**
 - JWT: access token (15 min) + refresh token (7 days, stored in Redis)
 - Frontend silently refreshes access token on expiry
 - Logout: revoke refresh token from Redis
 
 **Endpoints:**
 ```
-GET  /api/auth/google           → redirect to Google consent screen
-GET  /api/auth/google/callback  → handle callback, issue JWT, redirect to frontend
-POST /api/auth/refresh          → issue new access + refresh token pair
-POST /api/auth/logout           → revoke refresh token
-GET  /api/auth/me               → current user profile
+POST /api/auth/register             → form signup (individual or enterprise)
+POST /api/auth/verify-email         → verify email token
+POST /api/auth/login                → email + password login
+POST /api/auth/forgot-password      → send password reset email
+POST /api/auth/reset-password       → set new password via reset token
+POST /api/auth/refresh              → issue new access + refresh token pair
+POST /api/auth/logout               → revoke refresh token
+GET  /api/auth/me                   → current user profile
+
+GET  /api/auth/google               → redirect to Google consent (individual only)
+GET  /api/auth/google/callback      → handle callback, issue JWT, redirect to frontend
 ```
 
 ---
@@ -253,9 +275,13 @@ POST /api/notifications/read    → mark as read
 ### Control Plane DB — India (ap-south-1), always
 Only identity + tenant registry. No business data here.
 ```
-users               (id, email, google_id, name, avatar_url, created_at)
-tenants             (id, slug, name, region, plan, created_by, created_at)
+users               (id, email, google_id nullable, name, avatar_url,
+                     password_hash nullable, email_verified, created_at)
+tenants             (id, slug, name, region, plan, billing_address,
+                     country, created_by, created_at)
 user_tenant_roles   (user_id, tenant_id, role)
+email_verifications (id, user_id, token, expires_at, used_at)
+password_resets     (id, user_id, token, expires_at, used_at)
 ```
 
 ### Per-Region Tenant DB — in tenant's chosen region
