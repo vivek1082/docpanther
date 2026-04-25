@@ -40,6 +40,16 @@ public class Pod {
     @Builder.Default
     private double storageGb = 0.0;
 
+    /** JDBC URL for this pod's database. NULL means use the control-plane DataSource. */
+    @Column(name = "db_url")
+    private String dbUrl;
+
+    @Column(name = "db_username")
+    private String dbUsername;
+
+    @Column(name = "db_password")
+    private String dbPassword;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

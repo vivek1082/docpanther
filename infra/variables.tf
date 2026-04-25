@@ -123,5 +123,6 @@ variable "cloudfront_secret_header" {
 
 variable "rotation_lambda_arn" {
   type        = string
-  description = "ARN of Secrets Manager rotation Lambda for pod DB passwords"
+  default     = ""
+  description = "ARN of Secrets Manager rotation Lambda for pod DB passwords. Empty = no auto-rotation."
 }

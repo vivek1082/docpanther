@@ -13,6 +13,7 @@ import com.docpanther.superadmin.model.TenantAdminMetadata;
 import com.docpanther.superadmin.repository.PodRepository;
 import com.docpanther.superadmin.repository.TenantAdminMetadataRepository;
 import com.docpanther.superadmin.repository.TenantPodAssignmentRepository;
+import com.docpanther.tenant.PodDataSourceRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,6 +37,7 @@ public class SuperAdminService {
     private final TenantAdminMetadataRepository tenantAdminMetadataRepository;
     private final PodMigrationJob podMigrationJob;
     private final AuditLogger auditLogger;
+    private final PodDataSourceRegistry podDataSourceRegistry;
 
     // ── Tenant management ────────────────────────────────────────────
 
@@ -137,19 +139,26 @@ public class SuperAdminService {
     }
 
     @Transactional
-    public PodDto provisionPod(UUID actorId, String region, String type) {
+    public PodDto provisionPod(UUID actorId, String region, String type,
+                               String dbUrl, String dbUsername, String dbPassword) {
         PodType podType;
         try {
             podType = PodType.valueOf(type);
         } catch (IllegalArgumentException e) {
-            throw ApiException.badRequest("Invalid pod type. Must be SHARED or DEDICATED");
+            throw ApiException.badRequest("Invalid pod type. Must be STANDARD or PREMIUM");
         }
 
         Pod pod = podRepository.save(Pod.builder()
                 .region(region)
                 .type(podType)
                 .status(PodStatus.ACTIVE)
+                .dbUrl(dbUrl)
+                .dbUsername(dbUsername)
+                .dbPassword(dbPassword)
                 .build());
+
+        // Register the new pod's DataSource immediately — no restart needed.
+        podDataSourceRegistry.registerPod(pod.getId().toString(), dbUrl, dbUsername, dbPassword);
 
         auditLogger.log("POD_PROVISIONED", "ADMIN", actorId, null, null, null,
                 Map.of("podId", pod.getId().toString(), "region", region, "type", type));

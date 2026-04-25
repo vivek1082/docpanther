@@ -123,6 +123,7 @@ resource "aws_secretsmanager_secret" "pod_db" {
 }
 
 resource "aws_secretsmanager_secret_rotation" "pod_db" {
+  count               = var.rotation_lambda_arn != "" ? 1 : 0
   secret_id           = aws_secretsmanager_secret.pod_db.id
   rotation_lambda_arn = var.rotation_lambda_arn
   rotation_rules {

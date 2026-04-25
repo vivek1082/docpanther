@@ -52,7 +52,8 @@ public class SuperAdminController {
     public ResponseEntity<PodDto> provisionPod(
             @AuthenticationPrincipal(expression = "id") UUID actorId,
             @RequestBody ProvisionPodBody body) {
-        PodDto pod = superAdminService.provisionPod(actorId, body.region(), body.type());
+        PodDto pod = superAdminService.provisionPod(actorId, body.region(), body.type(),
+                body.dbUrl(), body.dbUsername(), body.dbPassword());
         return ResponseEntity.status(HttpStatus.CREATED).body(pod);
     }
 
@@ -113,7 +114,13 @@ public class SuperAdminController {
 
     record MovePodBody(@NotNull UUID targetPodId) {}
 
-    record ProvisionPodBody(@NotBlank String region, @NotBlank String type) {}
+    record ProvisionPodBody(
+            @NotBlank String region,
+            @NotBlank String type,
+            String dbUrl,
+            String dbUsername,
+            String dbPassword
+    ) {}
 
     record SuspendBody(String reason) {}
 

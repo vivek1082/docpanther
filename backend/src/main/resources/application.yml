@@ -79,6 +79,9 @@ app:
 
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
 
+  mail:
+    from-address: ${MAIL_FROM:noreply@docpanther.com}
+
 aws:
   region: ${AWS_REGION:ap-south-1}
 

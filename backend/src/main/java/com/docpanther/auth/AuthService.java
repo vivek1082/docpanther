@@ -6,6 +6,7 @@ import com.docpanther.auth.repository.PasswordResetRepository;
 import com.docpanther.auth.repository.UserRepository;
 import com.docpanther.common.audit.AuditLogger;
 import com.docpanther.common.exception.ApiException;
+import com.docpanther.tenant.PodRoutingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,6 +31,7 @@ public class AuthService {
     private final AuthMailer authMailer;
     private final AuditLogger auditLogger;
     private final JdbcTemplate jdbcTemplate;
+    private final PodRoutingService podRoutingService;
 
     @Transactional
     public void register(RegisterRequest req) {
@@ -79,6 +81,7 @@ public class AuthService {
             );
             jdbcTemplate.update("UPDATE users SET tenant_id = ? WHERE id = ?", tenantId, user.getId());
             user.setTenantId(tenantId);
+            assignTenantToDefaultPod(tenantId);
         } else if (req.mode() == RegistrationMode.INDIVIDUAL) {
             // Create a personal tenant so the user can use the filesystem
             UUID tenantId = UUID.randomUUID();
@@ -98,6 +101,7 @@ public class AuthService {
                 folderId, user.getId()
             );
             user.setTenantId(tenantId);
+            assignTenantToDefaultPod(tenantId);
         }
 
         String token = UUID.randomUUID().toString();
@@ -284,6 +288,34 @@ public class AuthService {
         String access = jwtService.generateAccessToken(userId, user.getEmail(), tenantId, role);
         String refresh = jwtService.generateRefreshToken(userId);
         return Map.of("access_token", access, "refresh_token", refresh);
+    }
+
+    /**
+     * Assigns a new tenant to the default pod and caches the route in Redis.
+     * Uses a best-effort approach — if no ACTIVE pod exists, the tenant falls
+     * back to the control-plane DataSource via the router's default.
+     */
+    private void assignTenantToDefaultPod(UUID tenantId) {
+        try {
+            UUID podId = jdbcTemplate.query(
+                "SELECT id FROM pods WHERE status = 'ACTIVE' ORDER BY tenant_count ASC, created_at ASC LIMIT 1",
+                rs -> rs.next() ? UUID.fromString(rs.getString("id")) : null
+            );
+            if (podId == null) return;
+
+            jdbcTemplate.update(
+                "INSERT INTO tenant_pod_assignments (id, tenant_id, pod_id) VALUES (gen_random_uuid(), ?, ?) ON CONFLICT DO NOTHING",
+                tenantId, podId
+            );
+            jdbcTemplate.update(
+                "UPDATE pods SET tenant_count = tenant_count + 1 WHERE id = ?", podId
+            );
+            podRoutingService.cachePodRoute(tenantId, podId.toString());
+        } catch (Exception e) {
+            // Non-fatal — tenant will route to control-plane fallback
+            org.slf4j.LoggerFactory.getLogger(AuthService.class)
+                .warn("Could not assign tenant {} to pod: {}", tenantId, e.getMessage());
+        }
     }
 
     record RegisterRequest(

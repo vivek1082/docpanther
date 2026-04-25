@@ -39,5 +39,6 @@ variable "redis_auth_token" {
 
 variable "rotation_lambda_arn" {
   type        = string
-  description = "ARN of the Secrets Manager rotation Lambda"
+  default     = ""
+  description = "ARN of the Secrets Manager rotation Lambda. Empty string disables auto-rotation."
 }
