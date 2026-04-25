@@ -43,4 +43,4 @@ Never expose these endpoints via CloudFront — they go through a separate inter
 - Access pod DB directly — use control plane DB only for pod registry
 
 ## Dependencies allowed
-- `audit/AuditLogger` — log every superadmin action (TENANT_SUSPENDED, POD_PROVISIONED, TENANT_MOVED, IMPERSONATION_STARTED)
+- `common.audit.AuditLogger (`import com.docpanther.common.audit.AuditLogger`)` — log every superadmin action (TENANT_SUSPENDED, POD_PROVISIONED, TENANT_MOVED, IMPERSONATION_STARTED)

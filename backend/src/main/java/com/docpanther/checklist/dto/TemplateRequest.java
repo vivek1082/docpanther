@@ -1,0 +1,13 @@
+package com.docpanther.checklist.dto;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+import java.util.List;
+
+public record TemplateRequest(
+        @NotBlank String name,
+        String tag,
+        @NotNull @Valid List<TemplateItemRequest> items
+) {}

@@ -42,8 +42,8 @@ spring:
       client:
         registration:
           google:
-            client-id: ${GOOGLE_CLIENT_ID}
-            client-secret: ${GOOGLE_CLIENT_SECRET}
+            client-id: ${GOOGLE_CLIENT_ID:placeholder-disabled}
+            client-secret: ${GOOGLE_CLIENT_SECRET:placeholder-disabled}
             scope: openid,profile,email
             redirect-uri: "{baseUrl}/api/auth/google/callback"
         provider:
@@ -63,7 +63,7 @@ server:
 
 app:
   jwt:
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:local-dev-jwt-secret-must-be-32chars!}
     access-token-expiry-ms: 900000      # 15 minutes
     refresh-token-expiry-ms: 604800000  # 7 days
 
@@ -95,13 +95,20 @@ spring:
       on-profile: local
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/docpanther_control
+    url: jdbc:postgresql://localhost:5432/docpanther
+    username: docpanther
+    password: localdev123
 
   data:
     redis:
       host: localhost
       port: 6379
       password:
+
+app:
+  s3:
+    local-mode: true
+    local-base-url: http://localhost:8080
 
 logging:
   level:

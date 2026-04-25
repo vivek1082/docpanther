@@ -34,7 +34,16 @@ This repo is worked on by **independent sub-agents**, one per module. Each sub-a
 | sharing-agent | `backend/src/main/java/com/docpanther/sharing/` | Share links, password protection |
 | notifications-agent | `backend/src/main/java/com/docpanther/notifications/` | SES email, in-app alerts, reminders |
 | audit-agent | `backend/src/main/java/com/docpanther/audit/` | Audit log writes (called by all modules) |
-| web-agent | `web/` | Next.js frontend |
+| superadmin-agent | `backend/src/main/java/com/docpanther/superadmin/` | Internal ops portal |
+| education-agent | `backend/src/main/java/com/docpanther/education/` | Batches, subjects, materials, student portal, batch templates |
+| web-control-agent | `web/` | Owns layout, design system, shared components, lib/ — do not modify in sub-agents |
+| auth-web-agent | `web/app/(auth)/` | Login, register, forgot/reset password, onboarding |
+| dashboard-web-agent | `web/app/(app)/dashboard/`, `web/app/(app)/folder/` | File explorer, folder tree |
+| cases-web-agent | `web/app/(app)/cases/`, `web/app/(app)/templates/` | Case list, case detail, checklist, templates |
+| education-web-agent | `web/app/(app)/education/` | Batch management, materials, student portal |
+| settings-web-agent | `web/app/(app)/settings/`, `web/app/(app)/notifications/` | Org settings, billing, notifications |
+| upload-portal-web-agent | `web/app/upload/` | Public customer upload portal (no auth) |
+| shared-web-agent | `web/app/shared/` | Shared document viewer |
 | infra-agent | `infra/` | Terraform AWS resources |
 
 ### What sub-agents MUST NOT do

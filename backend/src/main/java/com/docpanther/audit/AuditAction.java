@@ -1,0 +1,93 @@
+package com.docpanther.audit;
+
+public enum AuditAction {
+
+    // Auth
+    USER_REGISTERED,
+    USER_LOGGED_IN,
+    USER_LOGGED_OUT,
+    TOKEN_REFRESHED,
+    PASSWORD_RESET_REQUESTED,
+    PASSWORD_RESET,
+    EMAIL_VERIFIED,
+
+    // Tenant / members
+    TENANT_UPDATED,
+    MEMBER_INVITED,
+    MEMBER_ROLE_UPDATED,
+    MEMBER_REMOVED,
+
+    // Folder
+    FOLDER_CREATED,
+    FOLDER_UPDATED,
+    FOLDER_DELETED,
+    FOLDER_MOVED,
+    PERMISSION_GRANTED,
+    PERMISSION_REVOKED,
+
+    // File (direct folder uploads)
+    FILE_UPLOADED,
+    FILE_RENAMED,
+    FILE_DELETED,
+    FILE_MOVED,
+
+    // Case
+    CASE_CREATED,
+    CASE_UPDATED,
+    CASE_DELETED,
+    CASE_MOVED,
+
+    // Checklist
+    ITEM_CREATED,
+    ITEM_UPDATED,
+    ITEM_DELETED,
+    ITEM_APPROVED,
+    ITEM_REJECTED,
+
+    // Document (checklist uploads)
+    DOCUMENT_UPLOADED,
+    DOCUMENT_DELETED,
+    TEXT_INPUT_SUBMITTED,
+
+    // Template
+    TEMPLATE_CREATED,
+    TEMPLATE_UPDATED,
+    TEMPLATE_DELETED,
+    TEMPLATE_APPLIED,
+
+    // Share links
+    SHARE_LINK_CREATED,
+    SHARE_LINK_DELETED,
+    SHARE_LINK_ACCESSED,
+
+    // Notifications
+    REMINDER_SENT,
+
+    // Education — batch templates
+    BATCH_TEMPLATE_CREATED,
+    BATCH_TEMPLATE_UPDATED,
+    BATCH_TEMPLATE_DELETED,
+
+    // Education — batches
+    BATCH_CREATED,
+    BATCH_UPDATED,
+    STUDENT_ENROLLED,
+    STUDENT_UNENROLLED,
+
+    // Education — subjects
+    SUBJECT_CREATED,
+    SUBJECT_UPDATED,
+    SUBJECT_DELETED,
+    TEACHER_ASSIGNED,
+    TEACHER_REMOVED,
+
+    // Education — materials
+    MATERIAL_UPLOADED,
+    MATERIAL_APPROVED,
+    MATERIAL_REJECTED,
+    MATERIAL_DELETED,
+
+    // Education — student personal storage
+    STUDENT_FILE_UPLOADED,
+    STUDENT_FILE_DELETED
+}

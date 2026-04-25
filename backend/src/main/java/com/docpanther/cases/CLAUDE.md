@@ -41,6 +41,12 @@ Do NOT buffer entire ZIP in memory. Stream file-by-file.
 - Access checklist item data directly — checklist module handles that; cases module only reads document count via a DTO projection
 
 ## Dependencies allowed
-- `common/FileStorage` — for ZIP download (get presigned GET URLs per file)
-- `audit/AuditLogger` — log CASE_CREATED, CASE_UPDATED, CASE_DELETED, REMINDER_SENT
-- `notifications/Mailer` — for reminder email
+- `common/FileStorage` (`import com.docpanther.common.storage.FileStorage`) — for ZIP download
+- `common.audit.AuditLogger` (`import com.docpanther.common.audit.AuditLogger`) — log CASE_CREATED, CASE_UPDATED, CASE_DELETED, REMINDER_SENT
+- `common/mail/Mailer` (`import com.docpanther.common.mail.Mailer`) — for reminder email; do NOT import from notifications package
+- Implement `com.docpanther.common.cases.CaseService` interface in your CaseService — checklist agent will inject this via the common interface
+
+## Existing skeleton files
+- `model/Case.java` — already created with all fields; `createdBy` is UUID (not User reference)
+- `model/CaseStatus.java` — already created with PENDING, PARTIAL, COMPLETE
+- `model/StorageMode.java` — already created with FLAT, STRUCTURED

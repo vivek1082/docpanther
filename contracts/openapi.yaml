@@ -171,6 +171,131 @@ components:
         read:      { type: boolean }
         createdAt: { type: string, format: date-time }
 
+    # ── Education schemas ──────────────────────────────────────────
+
+    BatchTemplate:
+      type: object
+      properties:
+        id:           { type: string, format: uuid }
+        tenantId:     { type: string, format: uuid }
+        name:         { type: string }
+        description:  { type: string, nullable: true }
+        subjectCount: { type: integer }
+        subjects:
+          type: array
+          items: { $ref: '#/components/schemas/BatchTemplateSubject' }
+        createdAt:    { type: string, format: date-time }
+
+    BatchTemplateSubject:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        templateId:       { type: string, format: uuid }
+        name:             { type: string }
+        defaultTeacherId: { type: string, format: uuid, nullable: true }
+        order:            { type: integer }
+
+    Batch:
+      type: object
+      properties:
+        id:              { type: string, format: uuid }
+        tenantId:        { type: string, format: uuid }
+        name:            { type: string }
+        academicYear:    { type: string, nullable: true }
+        templateId:      { type: string, format: uuid, nullable: true }
+        enrollmentCount: { type: integer }
+        subjectCount:    { type: integer }
+        createdAt:       { type: string, format: date-time }
+
+    BatchDetail:
+      allOf:
+        - $ref: '#/components/schemas/Batch'
+        - type: object
+          properties:
+            subjects:
+              type: array
+              items: { $ref: '#/components/schemas/BatchSubject' }
+            openCases:
+              type: array
+              items: { $ref: '#/components/schemas/Case' }
+
+    BatchSubject:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        batchId:   { type: string, format: uuid }
+        name:      { type: string }
+        teacherIds:
+          type: array
+          items: { type: string, format: uuid }
+        materialCount: { type: integer }
+
+    Material:
+      type: object
+      properties:
+        id:              { type: string, format: uuid }
+        subjectId:       { type: string, format: uuid }
+        batchId:         { type: string, format: uuid }
+        title:           { type: string }
+        description:     { type: string, nullable: true }
+        s3Key:           { type: string }
+        filename:        { type: string }
+        contentType:     { type: string }
+        sizeBytes:       { type: integer, format: int64 }
+        status:          { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED] }
+        uploadedBy:      { type: string, format: uuid }
+        approvedBy:      { type: string, format: uuid, nullable: true }
+        approvedAt:      { type: string, format: date-time, nullable: true }
+        rejectionReason: { type: string, nullable: true }
+        uploadedAt:      { type: string, format: date-time }
+
+    StudentStorage:
+      type: object
+      properties:
+        userId:     { type: string, format: uuid }
+        tenantId:   { type: string, format: uuid }
+        usedBytes:  { type: integer, format: int64 }
+        quotaBytes: { type: integer, format: int64 }
+
+    StudentFile:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        userId:      { type: string, format: uuid }
+        filename:    { type: string }
+        contentType: { type: string }
+        s3Key:       { type: string }
+        sizeBytes:   { type: integer, format: int64 }
+        uploadedAt:  { type: string, format: date-time }
+
+    PageBatchTemplate:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            content: { type: array, items: { $ref: '#/components/schemas/BatchTemplate' } }
+
+    PageBatch:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            content: { type: array, items: { $ref: '#/components/schemas/Batch' } }
+
+    PageMaterial:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            content: { type: array, items: { $ref: '#/components/schemas/Material' } }
+
+    PageStudentFile:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            content: { type: array, items: { $ref: '#/components/schemas/StudentFile' } }
+
 paths:
 
   # ── AUTH ─────────────────────────────────────────────────────────
@@ -328,6 +453,25 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
+    put:
+      tags: [auth]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:      { type: string }
+                avatarUrl: { type: string }
+                currentPassword: { type: string }
+                newPassword:     { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
 
   /api/auth/google:
     get:
@@ -363,6 +507,23 @@ paths:
               schema: { $ref: '#/components/schemas/Tenant' }
 
   /api/tenants/me/members:
+    get:
+      tags: [tenant]
+      summary: List all team members
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    userId:    { type: string, format: uuid }
+                    email:     { type: string }
+                    name:      { type: string }
+                    role:      { type: string, enum: [TENANT_ADMIN, TENANT_MEMBER] }
+                    joinedAt:  { type: string, format: date-time }
     post:
       tags: [tenant]
       summary: Invite team member by email
@@ -1433,6 +1594,101 @@ paths:
       responses:
         '200': { description: Migration initiated }
 
+  /api/admin/tenants/{id}/suspend:
+    post:
+      tags: [superadmin]
+      summary: Suspend a tenant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200': { description: Tenant suspended }
+
+  /api/admin/tenants/{id}/reactivate:
+    post:
+      tags: [superadmin]
+      summary: Reactivate a suspended tenant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Tenant reactivated }
+
+  /api/admin/tenants/{id}/plan:
+    put:
+      tags: [superadmin]
+      summary: Change a tenant's billing plan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              properties:
+                plan: { type: string }
+      responses:
+        '200': { description: Plan updated }
+
+  /api/admin/pods/{id}/status:
+    put:
+      tags: [superadmin]
+      summary: Update pod status (ACTIVE/DRAINING/FULL)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [ACTIVE, DRAINING, FULL] }
+      responses:
+        '200': { description: Status updated }
+
+  /api/admin/users:
+    get:
+      tags: [superadmin]
+      summary: Find a user by email
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema: { type: string, format: email }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:    { type: string, format: uuid }
+                  email: { type: string }
+                  name:  { type: string }
+                  tenantId: { type: string, format: uuid }
+
   /api/admin/pods:
     get:
       tags: [superadmin]
@@ -1484,4 +1740,488 @@ paths:
                   totalCases:       { type: integer }
                   totalStorageGb:   { type: number }
                   activePodsCount:  { type: integer }
+
+  # ─────────────────────────────────────────────
+  # EDUCATION VERTICAL
+  # ─────────────────────────────────────────────
+
+  /api/edu/templates:
+    get:
+      tags: [education]
+      summary: List batch templates
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageBatchTemplate'
+    post:
+      tags: [education]
+      summary: Create batch template
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:        { type: string }
+                description: { type: string }
+                subjects:
+                  type: array
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name:            { type: string }
+                      defaultTeacherId: { type: string, format: uuid }
+                      order:            { type: integer }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchTemplate' }
+
+  /api/edu/templates/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [education]
+      summary: Get template with subjects
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchTemplate' }
+    put:
+      tags: [education]
+      summary: Update template
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:        { type: string }
+                description: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchTemplate' }
+    delete:
+      tags: [education]
+      summary: Delete template
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+
+  /api/edu/batches:
+    get:
+      tags: [education]
+      summary: List batches
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PageBatch' }
+    post:
+      tags: [education]
+      summary: Create batch (optionally from template)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:         { type: string }
+                academicYear: { type: string }
+                templateId:   { type: string, format: uuid, description: "If set, auto-creates subjects from template" }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Batch' }
+
+  /api/edu/batches/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [education]
+      summary: Batch detail with subjects and open cases
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchDetail' }
+    put:
+      tags: [education]
+      summary: Update batch
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:         { type: string }
+                academicYear: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Batch' }
+
+  /api/edu/batches/{id}/enroll:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [education]
+      summary: Enroll students in batch
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [studentIds]
+              properties:
+                studentIds:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        '200': { description: Students enrolled }
+
+  /api/edu/batches/{id}/enroll/{studentId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: studentId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [education]
+      summary: Unenroll student from batch
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Unenrolled }
+
+  /api/edu/batches/{batchId}/subjects:
+    parameters:
+      - { name: batchId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [education]
+      summary: Add subject to batch
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchSubject' }
+
+  /api/edu/subjects:
+    get:
+      tags: [education]
+      summary: List subjects for a batch
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: batchId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BatchSubject' }
+
+  /api/edu/subjects/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [education]
+      summary: Update subject name
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchSubject' }
+    delete:
+      tags: [education]
+      summary: Remove subject from batch
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+
+  /api/edu/subjects/{id}/teachers:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [education]
+      summary: Assign teacher to subject
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId: { type: string, format: uuid }
+      responses:
+        '200': { description: Teacher assigned }
+
+  /api/edu/subjects/{id}/teachers/{userId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [education]
+      summary: Remove teacher from subject
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Removed }
+
+  /api/edu/materials:
+    get:
+      tags: [education]
+      summary: List materials for a subject
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: subjectId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED] } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PageMaterial' }
+    post:
+      tags: [education]
+      summary: Upload material (returns presigned PUT URL)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subjectId, title, filename, contentType, sizeBytes]
+              properties:
+                subjectId:   { type: string, format: uuid }
+                title:       { type: string }
+                description: { type: string }
+                filename:    { type: string }
+                contentType: { type: string }
+                sizeBytes:   { type: integer, format: int64 }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  materialId:   { type: string, format: uuid }
+                  presignedUrl: { type: string }
+
+  /api/edu/materials/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [education]
+      summary: Get material detail
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Material' }
+    delete:
+      tags: [education]
+      summary: Delete material
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+
+  /api/edu/materials/{id}/approve:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [education]
+      summary: Approve material (triggers async email blast to enrolled students)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Material' }
+
+  /api/edu/materials/{id}/reject:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [education]
+      summary: Reject material with reason
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Material' }
+
+  /api/edu/my/batches:
+    get:
+      tags: [education]
+      summary: Student — list my enrolled batches
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Batch' }
+
+  /api/edu/my/batches/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [education]
+      summary: Student — batch detail (APPROVED materials only)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchDetail' }
+
+  /api/edu/my/storage:
+    get:
+      tags: [education]
+      summary: Student — get my storage quota
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudentStorage' }
+
+  /api/edu/my/storage/upload-url:
+    post:
+      tags: [education]
+      summary: Student — get presigned upload URL (checks quota)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, contentType, sizeBytes]
+              properties:
+                filename:    { type: string }
+                contentType: { type: string }
+                sizeBytes:   { type: integer, format: int64 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presignedUrl: { type: string }
+                  s3Key:        { type: string }
+        '429':
+          description: Storage quota exceeded
+
+  /api/edu/my/storage/confirm:
+    post:
+      tags: [education]
+      summary: Student — confirm upload, increment used_bytes
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [s3Key, filename, sizeBytes]
+              properties:
+                s3Key:    { type: string }
+                filename: { type: string }
+                sizeBytes: { type: integer, format: int64 }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudentFile' }
+
+  /api/edu/my/storage/files:
+    get:
+      tags: [education]
+      summary: Student — list my personal files
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PageStudentFile' }
+
+  /api/edu/my/storage/files/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [education]
+      summary: Student — delete personal file, decrement used_bytes
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
                   mrrInr:           { type: number }

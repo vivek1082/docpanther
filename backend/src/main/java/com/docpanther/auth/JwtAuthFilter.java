@@ -38,11 +38,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 Claims claims = jwtService.parseAccessToken(token);
                 String userId = claims.getSubject();
                 userRepository.findById(UUID.fromString(userId)).ifPresent(user -> {
-                    var auth = new UsernamePasswordAuthenticationToken(
-                        user,
-                        null,
-                        List.of(new SimpleGrantedAuthority("ROLE_USER"))
-                    );
+                    List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+                    authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+                    String role = claims.get("role", String.class);
+                    if (role != null && !role.isBlank()) {
+                        authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+                    }
+                    var auth = new UsernamePasswordAuthenticationToken(user, null, authorities);
                     SecurityContextHolder.getContext().setAuthentication(auth);
                 });
             } catch (Exception e) {

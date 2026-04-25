@@ -41,4 +41,4 @@ POST /api/shared/{token}/access  { password? }
 
 ## Dependencies allowed
 - `common/FileStorage` — for generating presigned GET URL
-- `audit/AuditLogger` — log LINK_SHARED, LINK_VIEWED, LINK_PASSWORD_FAILED
+- `common.audit.AuditLogger (`import com.docpanther.common.audit.AuditLogger`)` — log LINK_SHARED, LINK_VIEWED, LINK_PASSWORD_FAILED

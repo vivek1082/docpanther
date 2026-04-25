@@ -500,6 +500,41 @@ IAS coaching institutes, school chains, colleges are sharing notes, assignments,
 
 ---
 
+### Dual Mode — Education + Case Mode in Same Tenant
+
+A coaching institute tenant can use **both modes simultaneously**:
+
+| Mode | Purpose | Who uploads | Who receives |
+|---|---|---|---|
+| **Education mode** | Share notes/materials with students | Teacher → Admin approves → Students download | Students (read-only) |
+| **Case mode** | Collect documents FROM students | Students upload against a checklist | Admin reviews + approves |
+
+**Examples of case mode within a coaching institute:**
+- Admission documents: collect ID proof, marksheet, fee receipt from each new student
+- Scholarship application: collect income certificate, bonafide, bank details
+- Exam registration: collect passport-size photo, signature, previous marksheet
+- Hostel allotment: collect address proof, medical certificate, parent consent
+
+**How they connect:**
+- A case can optionally be tagged to a batch (`batch_id` on the case)
+- Example: admin creates "IAS Batch 11 Admission" case → links to `IAS Batch 11` batch → sends upload link to 300 students
+- Once all documents collected and approved → student is formally enrolled in the batch
+- Batch view shows both: shared materials AND open/closed cases for that batch
+
+**Case mode for students:**
+- Student receives upload link (`visionias.docpanther.com/{token}`)
+- Uploads required documents (same upload portal, no login needed for case upload)
+- Admin reviews, approves/rejects per checklist item
+- On all items approved → student enrollment confirmed, notification sent
+
+**Schema addition:**
+```sql
+-- cases table gets an optional batch reference
+ALTER TABLE cases ADD COLUMN batch_id UUID REFERENCES batches(id) ON DELETE SET NULL;
+```
+
+---
+
 ### Roles in Education Vertical
 
 ```

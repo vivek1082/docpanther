@@ -1,0 +1,8 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+CREATE SCHEMA IF NOT EXISTS control_plane;
+CREATE SCHEMA IF NOT EXISTS pod_local;
+
+GRANT ALL ON SCHEMA control_plane TO docpanther;
+GRANT ALL ON SCHEMA pod_local TO docpanther;

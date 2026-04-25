@@ -39,5 +39,10 @@ Check in order before generating presigned URL:
 - Call S3 — call `FileStorage` interface if needed
 
 ## Dependencies allowed
-- `cases/CaseService` interface method `recalculateStatus(UUID caseId)` — call after every item status change
-- `audit/AuditLogger` — log CHECKLIST_FILE_APPROVED, CHECKLIST_FILE_REJECTED, TEXT_SUBMITTED
+- `common/cases/CaseService` interface (`import com.docpanther.common.cases.CaseService`) — call `recalculateStatus(UUID caseId)` after every item status change
+- `common.audit.AuditLogger` (`import com.docpanther.common.audit.AuditLogger`) — log CHECKLIST_FILE_APPROVED, CHECKLIST_FILE_REJECTED, TEXT_SUBMITTED
+
+## Existing skeleton files
+- `model/ChecklistItem.java` — already exists with `documentIds: List<UUID>` (NOT a Document reference)
+- `model/ItemStatus.java` — already exists with PENDING, UPLOADED, APPROVED, REJECTED
+- `model/ItemType.java` — already exists with FILE_UPLOAD, TEXT_INPUT

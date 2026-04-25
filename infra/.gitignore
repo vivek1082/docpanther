@@ -1,0 +1,16 @@
+# Terraform state — never commit
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Secrets
+*.tfvars.json
+secrets.auto.tfvars
+*.pem

@@ -37,5 +37,11 @@ public class AppProperties {
     public static class S3 {
         private String bucketPrefix = "docpanther";
         private int presignedUrlExpiryMinutes = 15;
+        /** Optional MinIO/localstack endpoint override, e.g. http://localhost:9000 */
+        private String endpoint;
+        /** Must be true for MinIO (bucket in path, not hostname) */
+        private boolean pathStyleAccess = false;
+        /** Public-facing endpoint for presigned URLs (may differ from internal endpoint in Docker) */
+        private String publicEndpoint;
     }
 }

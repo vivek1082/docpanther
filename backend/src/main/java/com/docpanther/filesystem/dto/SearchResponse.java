@@ -1,0 +1,9 @@
+package com.docpanther.filesystem.dto;
+
+import java.util.List;
+
+public record SearchResponse(
+        List<FolderResponse>  folders,
+        List<CaseSummaryDto>  cases,
+        List<FileNodeResponse> files
+) {}

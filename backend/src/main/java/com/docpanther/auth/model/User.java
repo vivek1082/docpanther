@@ -24,14 +24,38 @@ public class User {
     @Column(nullable = false, unique = true)
     private String email;
 
-    @Column(name = "google_id", nullable = false, unique = true)
+    @Column(name = "google_id", unique = true)
     private String googleId;
 
     @Column(nullable = false)
     private String name;
 
+    @Column(name = "password_hash")
+    private String passwordHash;
+
     @Column(name = "avatar_url")
     private String avatarUrl;
+
+    @Column(name = "email_verified", nullable = false)
+    @Builder.Default
+    private boolean emailVerified = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "registration_mode", nullable = false)
+    @Builder.Default
+    private RegistrationMode registrationMode = RegistrationMode.INDIVIDUAL;
+
+    @Column(name = "tenant_id")
+    private UUID tenantId;
+
+    @Column(name = "org_name")
+    private String orgName;
+
+    @Column(name = "org_slug")
+    private String orgSlug;
+
+    @Column(name = "org_region")
+    private String orgRegion;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

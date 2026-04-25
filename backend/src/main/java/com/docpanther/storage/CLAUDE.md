@@ -57,6 +57,6 @@ String slug = request.getServerName().split("\\.")[0];
 - Send emails — call `Mailer` interface
 
 ## Dependencies allowed
-- `common/FileStorage` interface (you implement this)
-- `checklist/ChecklistService` → `markUploaded(itemId)` method
-- `audit/AuditLogger` — log FILE_UPLOADED
+- `common/storage/FileStorage` interface (you implement this, `import com.docpanther.common.storage.FileStorage`)
+- `common/checklist/ChecklistService` → `import com.docpanther.common.checklist.ChecklistService` → call `markUploaded(itemId)`
+- `common.audit.AuditLogger` (`import com.docpanther.common.audit.AuditLogger`) — log FILE_UPLOADED

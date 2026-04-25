@@ -30,16 +30,29 @@ public class JwtService {
         return Keys.hmacShaKeyFor(appProperties.getJwt().getSecret().getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateAccessToken(String userId, String email) {
+    public String generateAccessToken(String userId, String email, String tenantId, String role) {
         long now = System.currentTimeMillis();
-        return Jwts.builder()
+        var builder = Jwts.builder()
             .subject(userId)
             .claim("email", email)
-            .claim("type", "access")
+            .claim("type", "access");
+
+        if (tenantId != null) {
+            builder.claim("tenantId", tenantId);
+        }
+        if (role != null) {
+            builder.claim("role", role);
+        }
+
+        return builder
             .issuedAt(new Date(now))
             .expiration(new Date(now + appProperties.getJwt().getAccessTokenExpiryMs()))
             .signWith(signingKey())
             .compact();
+    }
+
+    public String generateAccessToken(String userId, String email, String tenantId) {
+        return generateAccessToken(userId, email, tenantId, null);
     }
 
     public String generateRefreshToken(String userId) {
